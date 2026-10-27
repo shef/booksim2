@@ -31,6 +31,10 @@
 #include <limits>
 #include <cstdlib>
 #include <ctime>
+#include <algorithm>
+#include <deque>
+#include <map>
+#include <vector>
 
 #include "booksim.hpp"
 #include "booksim_config.hpp"
@@ -39,6 +43,10 @@
 #include "random_utils.hpp" 
 #include "vc.hpp"
 #include "packet_reply_info.hpp"
+
+bool gMeasureReorder = false;
+void ReorderOnCreate( int src, int dest, int pid, bool record );
+void ReorderOnArrive( int src, int dest, int pid, long now );
 
 TrafficManager * TrafficManager::New(Configuration const & config,
                                      vector<Network *> const & net)
@@ -61,6 +69,7 @@ TrafficManager::TrafficManager( const Configuration &config, const vector<Networ
 
     _nodes = _net[0]->NumNodes( );
     _routers = _net[0]->NumRouters( );
+    gMeasureReorder = config.GetInt("measure_reorder") != 0;
 
     _vcs = config.GetInt("num_vcs");
     _subnets = config.GetInt("subnets");
@@ -640,6 +649,66 @@ TrafficManager::~TrafficManager( )
 }
 
 
+// Packet reordering between each (source, destination) pair, enabled with
+// measure_reorder=1. A packet arrives out of order if an earlier packet of the
+// same pair is still in flight; its resequencing delay is how long an in-order
+// receiver would hold it until every earlier packet of the pair has arrived.
+namespace {
+
+struct ReorderEntry {
+    int pid;
+    long arrival;  // -1 until the tail flit retires
+    bool record;
+};
+
+std::map<long long, std::deque<ReorderEntry> > gReorderPending;
+std::vector<long> gReorderDelays;
+long gReorderPackets = 0, gReorderOutOfOrder = 0;
+
+struct ReorderReport {
+    ~ReorderReport() {
+        if (gReorderPackets == 0) return;
+        std::sort(gReorderDelays.begin(), gReorderDelays.end());
+        double sum = 0;
+        for (size_t i = 0; i < gReorderDelays.size(); ++i) sum += gReorderDelays[i];
+        long p99 = gReorderDelays.empty() ? 0 : gReorderDelays[(gReorderDelays.size() - 1) * 99 / 100];
+        long mx = gReorderDelays.empty() ? 0 : gReorderDelays.back();
+        std::cout << "reorder: packets " << gReorderPackets << ", arrived out of order "
+                  << gReorderOutOfOrder << " (" << 100.0 * gReorderOutOfOrder / gReorderPackets
+                  << "%), resequencing delay mean " << sum / gReorderDelays.size() << " p99 " << p99
+                  << " max " << mx << " cycles" << std::endl;
+    }
+} gReorderReport;
+
+}  // namespace
+
+
+void ReorderOnCreate( int src, int dest, int pid, bool record )
+{
+    gReorderPending[(long long)src * gNodes + dest].push_back(ReorderEntry{pid, -1, record});
+}
+
+void ReorderOnArrive( int src, int dest, int pid, long now )
+{
+    std::deque<ReorderEntry> & q = gReorderPending[(long long)src * gNodes + dest];
+    bool earlier_missing = false;
+    for (size_t i = 0; i < q.size(); ++i) {
+        if (q[i].pid == pid) {
+            q[i].arrival = now;
+            if (q[i].record) {
+                ++gReorderPackets;
+                if (earlier_missing) ++gReorderOutOfOrder;
+            }
+            break;
+        }
+        if (q[i].arrival < 0) earlier_missing = true;
+    }
+    while (!q.empty() && q.front().arrival >= 0) {
+        if (q.front().record) gReorderDelays.push_back(now - q.front().arrival);
+        q.pop_front();
+    }
+}
+
 void TrafficManager::_RetireFlit( Flit *f, int dest )
 {
     _deadlock_timer = 0;
@@ -717,6 +786,10 @@ void TrafficManager::_RetireFlit( Flit *f, int dest )
                 _requestsOutstanding[f->src]--;
             }
       
+        }
+
+        if ( gMeasureReorder ) {
+            ReorderOnArrive( f->src, dest, f->pid, GetSimTime() );
         }
 
         // Only record statistics once per packet (at tail)
@@ -840,7 +913,11 @@ void TrafficManager::_GeneratePacket( int source, int stype,
         record = _measure_stats[cl];
     }
 
-    int subnetwork = ((packet_type == Flit::ANY_TYPE) ? 
+    if ( gMeasureReorder ) {
+        ReorderOnCreate( source, packet_destination, pid, record );
+    }
+
+    int subnetwork = ((packet_type == Flit::ANY_TYPE) ?
                       RandomInt(_subnets-1) :
                       _subnet[packet_type]);
   

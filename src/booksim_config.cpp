@@ -168,6 +168,9 @@ BookSimConfig::BookSimConfig( )
   
   _int_map["injection_rate_uses_flits"] = 0;
 
+  // report per-pair packet reordering and resequencing delay
+  _int_map["measure_reorder"] = 0;
+
   // matrix traffic: weighted endpoint-to-endpoint traffic matrix
   AddStrField("traffic_matrix_file", "");
 
