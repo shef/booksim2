@@ -174,7 +174,7 @@ BookSimConfig::BookSimConfig( )
   // matrix traffic: weighted endpoint-to-endpoint traffic matrix
   AddStrField("traffic_matrix_file", "");
 
-  // fabric topology (networks/fabric.hpp, doc/fabric.md)
+  // fabric topology (networks/fabric.hpp, doc/fabric/)
   _int_map["fabric_terminals"] = 1;    // default terminals per router
   AddStrField("fabric_table_file", "");
   AddStrField("fabric_path_file", ""); // source routes for src_fabric

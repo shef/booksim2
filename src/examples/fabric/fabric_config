@@ -1,7 +1,7 @@
 // Fabric example: a 4x4x4 torus built from file-defined links with
 // dimension-order source routes. Links inside the cube are 90-cycle copper;
 // the wraparound links leave the cube through an optical switch, 580 cycles.
-// See doc/fabric.md for the file formats.
+// See doc/fabric/formats.md for the file formats.
 
 topology = fabric;
 network_file = torus444_topo.txt;

@@ -27,7 +27,7 @@
 
 // Fabric: a network whose topology and routing come from files, for
 // accelerator scale-up fabrics (tori, dragonfly-like group networks,
-// switched fabrics). See doc/fabric.md for the file formats.
+// switched fabrics). See doc/fabric/formats.md for the file formats.
 //
 // Routers may be chips (with terminals) or switches (no terminals). Router r
 // has fabric_terminals terminals unless the topology file overrides it; its

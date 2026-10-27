@@ -1,4 +1,4 @@
-# Fabric network
+# Fabric file formats
 
 `topology = fabric` builds a network from files instead of a built-in shape.
 It is meant for accelerator scale-up fabrics: tori, group networks such as
@@ -69,38 +69,16 @@ SRC DEST N  PORT VC  PORT VC ...
 
 with the link port and VC of each of the `N` hops.
 
-## Routing functions
+## Traffic matrix (`traffic_matrix_file`)
 
-| `routing_function` | Needs | Behaviour |
-|---|---|---|
-| `src` | paths | fixed routes with explicit VCs, e.g. routes computed offline for a failed link |
-| `dor` | tables (`MIN`) | torus dimension-order routing; VC 0 per dimension, VC 1 after the dateline |
-| `esc` | tables | deterministic minimal; VC +1 after a global hop and on each kind 1 -> 0 turn |
-| `updown` | tables | up*/down*; VC +1 after each global hop |
-| `duato` | tables | adaptive on VCs `0..n-3`; escape on up*/down*, VC `n-2` outside the destination group, `n-1` inside |
-| `lduato` | tables with layers | adaptive on VCs `0..n-L-1`; layered escape on VC `n-L+LAYER` (`L = fabric_esc_layers`) |
-| `ugal` | tables with layers | `lduato` plus a source choice between minimal and a Valiant path through a random third group (`ugal_threshold` biases toward minimal) |
+The endpoint count `E`, then `SRC DST WEIGHT` lines. Endpoints are consecutive
+blocks of `nodes / E` nodes (a chip's terminals); a node's destination
+endpoint is drawn with its row's weights and the node within it uniformly.
 
-At exit the network reports how many packets finished on escape VCs and, for
-`ugal`, the minimal/Valiant split.
-
-## Related options
-
-| Option | Effect |
-|---|---|
-| `traffic = matrix` | endpoint-to-endpoint weights from `traffic_matrix_file`: the endpoint count `E`, then `SRC DST WEIGHT` lines; endpoints are consecutive blocks of `nodes / E` nodes (a chip's terminals) |
-| `traffic = groupshift(G)` | every node of group `g` sends to a random node of group `g+1`, groups being blocks of `G` nodes |
-| `measure_reorder = 1` | reports packets that arrived behind a later packet of the same source-destination pair, and the resequencing delay an in-order receiver would add (only for runs that converge) |
-
-## Example
-
-`src/examples/fabric/fabric_config`: a 4x4x4 torus with dimension-order
-source routes.
-
-## Tests
-
-`make -C src test` runs `tests/run_tests.py`: upstream example configs must
-reproduce `tests/golden` exactly, and the fabric network is checked on tiny
-topologies against analytical values (latency per hop, mean hop counts,
-per-terminal injection through a switch) plus saturated runs of every routing
-function.
+```
+4
+0 1 1
+1 2 1
+2 3 1
+3 0 1
+```
