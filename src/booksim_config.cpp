@@ -168,6 +168,9 @@ BookSimConfig::BookSimConfig( )
   
   _int_map["injection_rate_uses_flits"] = 0;
 
+  // matrix traffic: weighted endpoint-to-endpoint traffic matrix
+  AddStrField("traffic_matrix_file", "");
+
   // fabric topology (networks/fabric.hpp, doc/fabric.md)
   _int_map["fabric_terminals"] = 1;    // default terminals per router
   AddStrField("fabric_table_file", "");

@@ -26,6 +26,8 @@
 */
 
 #include <iostream>
+#include <fstream>
+#include <algorithm>
 #include <sstream>
 #include <ctime>
 #include "random_utils.hpp"
@@ -91,6 +93,11 @@ TrafficPattern * TrafficPattern::New(string const & pattern, int nodes,
       perm_seed = atoi(params[0].c_str());
     }
     result = new RandomPermutationTrafficPattern(nodes, perm_seed);
+  } else if(pattern_name == "groupshift") {
+    int group_size = params.empty() ? 32 : atoi(params[0].c_str());
+    result = new GroupShiftTrafficPattern(nodes, group_size);
+  } else if(pattern_name == "matrix") {
+    result = new MatrixTrafficPattern(nodes, config->GetStr("traffic_matrix_file"));
   } else if(pattern_name == "uniform") {
     result = new UniformRandomTrafficPattern(nodes);
   } else if(pattern_name == "background") {
@@ -381,6 +388,68 @@ UniformRandomTrafficPattern::UniformRandomTrafficPattern(int nodes)
   : RandomTrafficPattern(nodes)
 {
 
+}
+
+GroupShiftTrafficPattern::GroupShiftTrafficPattern(int nodes, int group_size)
+  : RandomTrafficPattern(nodes), _group_size(group_size)
+{
+  if((group_size <= 0) || (nodes % group_size) || (nodes / group_size < 2)) {
+    cout << "Error: groupshift needs at least two groups of group_size nodes." << endl;
+    exit(-1);
+  }
+}
+
+int GroupShiftTrafficPattern::dest(int source)
+{
+  assert((source >= 0) && (source < _nodes));
+  int groups = _nodes / _group_size;
+  return ((source / _group_size + 1) % groups) * _group_size + RandomInt(_group_size - 1);
+}
+
+MatrixTrafficPattern::MatrixTrafficPattern(int nodes, string const & file)
+  : RandomTrafficPattern(nodes)
+{
+  ifstream in(file.c_str());
+  if(!in) {
+    cout << "Error: cannot open traffic_matrix_file " << file << endl;
+    exit(-1);
+  }
+  in >> _endpoints;
+  if(!in || (_endpoints <= 0) || (nodes % _endpoints)) {
+    cout << "Error: traffic_matrix_file endpoint count must divide the node count ("
+         << nodes << ")." << endl;
+    exit(-1);
+  }
+  _dst.resize(_endpoints);
+  _cdf.resize(_endpoints);
+  int s, d;
+  double w;
+  while(in >> s >> d >> w) {
+    if((s < 0) || (s >= _endpoints) || (d < 0) || (d >= _endpoints) || (w <= 0)) {
+      cout << "Error: bad traffic_matrix_file entry " << s << " " << d << " " << w << endl;
+      exit(-1);
+    }
+    _dst[s].push_back(d);
+    _cdf[s].push_back((_cdf[s].empty() ? 0.0 : _cdf[s].back()) + w);
+  }
+  for(int e = 0; e < _endpoints; ++e) {
+    if(_dst[e].empty()) {
+      cout << "Error: traffic_matrix_file has no entries for endpoint " << e << endl;
+      exit(-1);
+    }
+  }
+}
+
+int MatrixTrafficPattern::dest(int source)
+{
+  assert((source >= 0) && (source < _nodes));
+  int const size = _nodes / _endpoints;
+  int const e = source / size;
+  vector<double> const & cdf = _cdf[e];
+  double x = RandomFloat(cdf.back());
+  size_t i = upper_bound(cdf.begin(), cdf.end(), x) - cdf.begin();
+  if(i == cdf.size()) --i;
+  return _dst[e][i] * size + RandomInt(size - 1);
 }
 
 int UniformRandomTrafficPattern::dest(int source)

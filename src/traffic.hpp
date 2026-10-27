@@ -116,9 +116,35 @@ protected:
   RandomTrafficPattern(int nodes);
 };
 
+// Adversarial pattern for group networks: every node of group g sends to a
+// random node of group g+1, groups being consecutive blocks of group_size
+// nodes: groupshift(group_size).
+class GroupShiftTrafficPattern : public RandomTrafficPattern {
+private:
+  int _group_size;
+public:
+  GroupShiftTrafficPattern(int nodes, int group_size);
+  virtual int dest(int source);
+};
+
 class UniformRandomTrafficPattern : public RandomTrafficPattern {
 public:
   UniformRandomTrafficPattern(int nodes);
+  virtual int dest(int source);
+};
+
+// Endpoint-level traffic matrix from a file (traffic_matrix_file): first
+// the number of endpoints E, then "src dst weight" lines. Endpoints are
+// consecutive blocks of nodes/E nodes (e.g. a chip's terminals); a node's
+// destination endpoint is drawn with its row's weights and the node within
+// it uniformly.
+class MatrixTrafficPattern : public RandomTrafficPattern {
+private:
+  int _endpoints;
+  vector<vector<int> > _dst;
+  vector<vector<double> > _cdf;
+public:
+  MatrixTrafficPattern(int nodes, string const & file);
   virtual int dest(int source);
 };
 
