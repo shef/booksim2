@@ -53,7 +53,10 @@ reach every other group directly, plus 1 spare.
   adaptive over every minimal port, escape on up*/down* with one VC layer per
   group hop. Fault-free: 2 adaptive and 2 escape VCs.
 - Buffers: 4 VCs x 512 flits per port, enough for the fiber round trip.
-- Exporter: being moved into `utils/fabric/`.
+- Exporter: [`utils/fabric/boardfly.py`](../../utils/fabric/boardfly.py)
+  (slices, failures, OCS repair, tables; `--verify` checks the escape network
+  is acyclic); all-reduce traffic from
+  [`utils/fabric/collectives.py`](../../utils/fabric/collectives.py).
 
 ## Failure model
 

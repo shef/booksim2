@@ -21,6 +21,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 BOOKSIM = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "src", "booksim"))
 FIX = os.path.join(HERE, "fixtures")
+UTILS = os.path.join(ROOT, "utils", "fabric")
 TMP = tempfile.mkdtemp(prefix="booksim_tests_")
 
 UPSTREAM = ["cmeshconfig", "flatflyconfig", "torus88", "mesh88_lat", "singleconfig",
@@ -257,10 +258,62 @@ def fabric_measure_reorder():
     assert re.search(r"reorder: packets \d+, arrived out of order", out), out[-500:]
 
 
+def exporter(script, *args):
+    p = subprocess.run([sys.executable, os.path.join(UTILS, script)] + list(args),
+                       capture_output=True, text=True, timeout=600)
+    assert p.returncode == 0, p.stderr[-2000:]
+    return p.stdout
+
+
+def utils_boardfly_collectives():
+    """boardfly.py and collectives.py end to end: a 2-group slice with an
+    optic failure (escape graph verified acyclic), then the overlapped
+    hierarchical all-reduce at six terminals per chip."""
+    d = os.path.join(TMP, "bf2")
+    out = exporter("boardfly.py", d, "--groups", "2", "--optic", "1", "--verify")
+    assert '"escape_acyclic": true' in out, out
+    mtx = os.path.join(TMP, "bf2_ar.txt")
+    exporter("collectives.py", "boardfly", mtx, "--groups", "2", "--stage", "fused")
+    out = booksim([f"network_file={d}/topo.txt", f"fabric_table_file={d}/tables.txt",
+                   "fabric_esc_layers=2", "routing_function=lduato", "num_vcs=4",
+                   "fabric_terminals=6", "traffic=matrix", f"traffic_matrix_file={mtx}",
+                   "vc_buf_size=1024"])
+    assert stat(out, "Hops") > 2
+
+
+def utils_torus_fault_routes():
+    """torus.py fault routes on a 4x4x8 slice with one OCS failure in Z: the
+    routes avoid the failed links (the exporter asserts it) and a saturated
+    run reports no deadlock."""
+    d = os.path.join(TMP, "t448")
+    out = exporter("torus.py", d, "--dims", "4", "4", "8", "--ocs-fault", "z",
+                   "--scenario", "adjacent", "--ocs-distance", "2")
+    assert "(4 failed)" in out, out
+    out = booksim([f"network_file={d}/topo.txt", f"fabric_path_file={d}/paths.txt",
+                   "routing_function=src", "sim_type=throughput", "injection_rate=1.0",
+                   "max_samples=2", "sample_period=1000"])
+    assert "deadlock" not in out.lower(), "possible deadlock reported"
+    assert stat(out, "Accepted flit rate") > 0.05
+
+
+def utils_torus_twisted_hops():
+    """Twisted 4x4x8: shortest dimension-order routes average fewer hops
+    than the plain torus (3.5 links vs 4)."""
+    hops = {}
+    for tw in (False, True):
+        d = os.path.join(TMP, f"t448_{tw}")
+        exporter("torus.py", d, "--dims", "4", "4", "8", *(["--twisted"] if tw else []))
+        out = booksim([f"network_file={d}/topo.txt", f"fabric_path_file={d}/paths.txt",
+                       "routing_function=src"])
+        hops[tw] = stat(out, "Hops")
+    assert hops[True] < hops[False] - 0.2, hops
+
+
 TESTS = [make_upstream_test(c) for c in UPSTREAM] + [
     fabric_latency_per_hop, fabric_dor_torus_hops, fabric_src_torus_fixture,
     fabric_switched_terminals, fabric_groupshift, fabric_matrix_errors, fabric_port_gap_error,
-    fabric_measure_reorder,
+    fabric_measure_reorder, utils_boardfly_collectives, utils_torus_fault_routes,
+    utils_torus_twisted_hops,
 ] + [make_smoke_test(r, x) for r, x in (("lduato", []), ("duato", []), ("updown", []),
                                         ("esc", []), ("ugal", ["ugal_threshold=128"]))]
 

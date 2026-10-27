@@ -25,6 +25,9 @@ upstream example configs reproduce their recorded statistics exactly.
 - **Tests**: `make -C src test` (upstream golden outputs plus fabric checks
   against analytical values), run by GitHub Actions on every push.
 
+Exporters for TPU torus and Boardfly slices and for collective traffic:
+[utils/fabric](utils/fabric).
+
 Documentation: [doc/README.md](doc/README.md): the simulator (file formats,
 routing functions, options), one page per modelled system with its sources
 and assumptions, and studies. Example: [src/examples/fabric](src/examples/fabric).

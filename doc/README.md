@@ -52,8 +52,9 @@ script that produced every number, and the raw results.
 ## Adding a system
 
 1. Copy [systems/_template.md](systems/_template.md) to `systems/<family>.md`.
-2. Write an exporter that produces the topology (and tables or routes) in the
-   formats above, with the calibration constants at its top.
+2. Write an exporter in `utils/fabric/` that produces the topology (and
+   tables or routes) in the formats above, with the calibration constants at
+   its top; `fabricio.py` has the writers.
 3. Fill in the assumptions table, including how much each assumption moves
    the results.
 4. Add a row to the systems table above.

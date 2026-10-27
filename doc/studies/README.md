@@ -13,5 +13,5 @@ Name files `YYYY-MM-<topic>.md`.
 
 | Study | Question | Status |
 |---|---|---|
-| Collectives at 1,024 chips | How do all-reduce and all-to-all compare on an Ironwood torus and an 8i Boardfly, fault-free and with one OCS failure? | pending: exporters moving into `utils/fabric/` |
+| Collectives at 1,024 chips | How do all-reduce and all-to-all compare on an Ironwood torus and an 8i Boardfly, fault-free and with one OCS failure? | pending |
 | Boardfly under failures | How much throughput does each failure cost, by slice size? | pending |

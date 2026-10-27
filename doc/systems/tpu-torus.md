@@ -70,7 +70,9 @@ what a duplex link end uses.
 - Fault routes: NSDI 2024's method, dimension-order routing plus at most one
   "wild" first hop per dimension, with the set of paths chosen to minimize the
   busiest link under all-to-all traffic. Written as `src` routes.
-- Exporters: being moved into `utils/fabric/`.
+- Exporter: [`utils/fabric/torus.py`](../../utils/fabric/torus.py) (topology,
+  fault-free and fault routes); all-reduce traffic from
+  [`utils/fabric/collectives.py`](../../utils/fabric/collectives.py).
 
 ### Buffer size and cable reach (derived)
 
