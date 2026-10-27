@@ -1,6 +1,7 @@
 // Fabric example: a 4x4x4 torus built from file-defined links with
-// dimension-order source routes. Links inside the cube are 90-cycle copper;
-// the wraparound links leave the cube through an optical switch, 580 cycles.
+// dimension-order source routes (utils/fabric/torus.py --dims 4 4 4). Links
+// inside the cube are 90-cycle copper; the wraparound links leave the cube
+// through an optical switch 100 m away, 1,080 cycles.
 // See doc/fabric/formats.md for the file formats.
 
 topology = fabric;
@@ -11,8 +12,11 @@ fabric_terminals = 1;
 
 router = iq;
 num_vcs = 2;
-// Buffers cover the 580-cycle fiber round trip.
-vc_buf_size = 1280;
+// A 1 MB shared buffer per port (5,242 flits of 200 B) covers the fiber
+// round trip; each VC keeps 16 flits of its own.
+buffer_policy = shared;
+buf_size = 5242;
+private_buf_size = 16;
 wait_for_tail_credit = 0;
 vc_allocator = separable_input_first;
 sw_allocator = separable_input_first;

@@ -40,7 +40,7 @@ reach every other group directly, plus 1 spare.
 | Link rate per direction | 1.6 Tb/s | derived | 8 lanes of 200G SerDes (Hot Chips 2026) |
 | In-tray hop | 60 ns | assumed | SerDes, FEC, board trace |
 | Copper hop | 90 ns | assumed | SerDes, FEC, rack copper |
-| Fiber hop (through the OCS) | 580 ns | assumed | as for the torus: 50 m from each TPU to the OCS |
+| Fiber hop (through the OCS) | 1,080 ns | assumed | as for the torus: 100 m from each TPU to the OCS |
 | Receive buffer per ICI port | 1 MB, shared across VCs | assumed | full rate up to about 250 m from TPU to OCS; see the torus page for the derivation |
 
 ## Model
@@ -75,7 +75,7 @@ reach every other group directly, plus 1 spare.
 | Tray, group, pod structure | as above | blog, Hot Chips, rack photo | derived | defines the model |
 | Global port wiring | round-robin matchings | simplest wiring that gives one link per group pair | assumed | small for uniform traffic |
 | OCS planes | 2 (ports 0-15 and 16-31), or 4 | 1,152 group ports; packaging not published | assumed | large: a plane outage keeps 16-30% of 32-group slice throughput with 2 planes, 59-83% with 4 (after re-planning) |
-| Hop latencies | 60 / 90 / 580 ns | estimate | assumed | latency only |
+| Hop latencies | 60 / 90 / 1,080 ns (100 m to the OCS) | estimate | assumed | latency; the distance sweep gives the cost per metre |
 | Receive buffer | 1 MB per port, shared across VCs | sized for about 250 m of reach | assumed | none within reach |
 | VCs | 4 (5 tested) | not published | assumed | moderate under failures: the 5th VC is worth up to 24 points after a plane outage |
 | Failure rates | NSDI 2024 v4 fleet rates | v4 is the closest published data | assumed | availability results |

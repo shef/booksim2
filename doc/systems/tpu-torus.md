@@ -49,7 +49,7 @@ what a duplex link end uses.
 | Ironwood link rate per direction | 800 Gb/s | derived | 6 links x 200 GB/s bidirectional (TPU7x docs) |
 | 8t link rate per direction | 1.6 Tb/s | published | Hot Chips 2026 |
 | Copper hop (inside a cube) | 90 ns | assumed | SerDes, FEC and short copper |
-| Fiber hop (through the OCS) | 580 ns | assumed | 80 ns of SerDes and FEC plus 100 m of fiber at 5 ns/m: 50 m from each TPU to the OCS |
+| Fiber hop (through the OCS) | 1,080 ns | assumed | 80 ns of SerDes and FEC plus 200 m of fiber at 5 ns/m: 100 m from each TPU to the OCS |
 | Receive buffer per ICI port | 512 KB (Ironwood), 1 MB (8t) | assumed | covers the credit round trip up to about 250 m from TPU to OCS (see below) |
 | Simulator time base | 1 cycle = 1 ns, 1 flit = 200 B | assumed | one flit per cycle is 1.6 Tb/s |
 
@@ -64,7 +64,7 @@ what a duplex link end uses.
   torus). 2 VCs.
 - Buffers: dimension-order routing carries a neighbour hop on a single VC, so
   with buffers split per VC each VC must cover the fiber round trip alone
-  (2,048 flits per VC at 50 m). With a shared buffer per port
+  (about 2,200 flits per VC at 100 m). With a shared buffer per port
   (`buffer_policy = shared`, a small private slice per VC) the port total
   counts.
 - Fault routes: NSDI 2024's method, dimension-order routing plus at most one
@@ -120,7 +120,7 @@ one failure unit holds two positions, 1 of 16 if it holds one.
 | OCS per face position | 1 switch, full pod reach | v4 geometry (ISCA 2023) | derived for v4, assumed for Ironwood | defines the failure unit |
 | OCS radix | about 300 duplex ports, 288 used | 288 needed; vendor product class | assumed | none (cost and spares) |
 | Positions lost per OCS failure | 1, or 2 if a box holds two | packaging not published | assumed | small: with 2 positions, adjacent and spread placements give the same all-to-all loss (87.1% kept on 4x4x8, Z) |
-| Hop latencies | 90 ns copper, 580 ns fiber (50 m to the OCS) | estimate | assumed | latency and buffer sizing; not throughput when buffers cover the round trip |
+| Hop latencies | 90 ns copper, 1,080 ns fiber (100 m to the OCS) | estimate | assumed | latency and buffer sizing; not throughput when buffers cover the round trip |
 | Receive buffer | 512 KB per port (Ironwood), 1 MB (8t), shared across VCs | sized for about 250 m of reach at each generation's link rate | assumed | none within reach; beyond it throughput falls as buffer / RTT |
 | 8t layout | same as Ironwood at 2x link rate | nothing published beyond pod size | assumed | 8t results are Ironwood results rescaled |
 | 8t pod | 150 cubes, 32 chips per rack | Hot Chips 2026 superpod drawing | derived | pod-level availability only |
