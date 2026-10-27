@@ -50,7 +50,7 @@ YACC_OBJS = y.tab.o
 
 OBJS :=  $(CPP_OBJS) $(LEX_OBJS) $(YACC_OBJS)
 
-.PHONY: clean
+.PHONY: clean test
 
 all: $(PROG)
 
@@ -78,6 +78,9 @@ clean:
 	rm -f $(CPP_DEPS)
 	rm -f $(OBJS)
 	rm -f $(PROG)
+
+test: $(PROG)
+	python3 ../tests/run_tests.py ./$(PROG)
 
 distclean: clean
 	rm -f *~ */*~
