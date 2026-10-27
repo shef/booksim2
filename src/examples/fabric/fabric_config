@@ -1,0 +1,32 @@
+// Fabric example: a 4x4x4 torus built from file-defined links with
+// dimension-order source routes. Links inside the cube are 90-cycle copper;
+// the wraparound links leave the cube through an optical switch, 580 cycles.
+// See doc/fabric.md for the file formats.
+
+topology = fabric;
+network_file = torus444_topo.txt;
+fabric_path_file = torus444_paths.txt;
+routing_function = src;
+fabric_terminals = 1;
+
+router = iq;
+num_vcs = 2;
+// Buffers cover the 580-cycle fiber round trip.
+vc_buf_size = 1280;
+wait_for_tail_credit = 0;
+vc_allocator = separable_input_first;
+sw_allocator = separable_input_first;
+alloc_iters = 1;
+credit_delay = 2;
+routing_delay = 0;
+vc_alloc_delay = 1;
+sw_alloc_delay = 1;
+
+traffic = uniform;
+packet_size = 8;
+injection_rate = 0.01;
+sim_type = latency;
+latency_thres = 50000.0;
+warmup_periods = 3;
+sample_period = 10000;
+max_samples = 10;
