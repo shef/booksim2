@@ -168,6 +168,13 @@ BookSimConfig::BookSimConfig( )
   
   _int_map["injection_rate_uses_flits"] = 0;
 
+  // fabric topology (networks/fabric.hpp, doc/fabric.md)
+  _int_map["fabric_terminals"] = 1;    // default terminals per router
+  AddStrField("fabric_table_file", "");
+  AddStrField("fabric_path_file", ""); // source routes for src_fabric
+  _int_map["fabric_esc_layers"] = 0;   // escape layers for lduato/ugal tables
+  _int_map["ugal_threshold"] = 0;      // UGAL bias toward the minimal path
+
   // number of flits per packet
   _int_map["packet_size"] = 1;
   AddStrField("packet_size", ""); // workaraound to allow for vector specification
