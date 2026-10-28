@@ -282,18 +282,35 @@ def utils_boardfly_collectives():
 
 
 def utils_torus_fault_routes():
-    """torus.py fault routes on a 4x4x8 slice with one OCS failure in Z: the
-    routes avoid the failed links (the exporter asserts it) and a saturated
-    run reports no deadlock."""
-    d = os.path.join(TMP, "t448")
-    out = exporter("torus.py", d, "--dims", "4", "4", "8", "--ocs-fault", "z",
-                   "--scenario", "adjacent", "--ocs-distance", "2")
-    assert "(4 failed)" in out, out
-    out = booksim([f"network_file={d}/topo.txt", f"fabric_path_file={d}/paths.txt",
-                   "routing_function=src", "sim_type=throughput", "injection_rate=1.0",
-                   "max_samples=2", "sample_period=1000"])
-    assert "deadlock" not in out.lower(), "possible deadlock reported"
-    assert stat(out, "Accepted flit rate") > 0.05
+    """torus.py fault routes with one OCS failure in Z: they avoid the failed
+    links (the exporter asserts it), their channel dependencies are acyclic
+    (one 4x4x4 cube with 2 VCs, twisted 4x4x8 with 3), and a saturated run
+    reports no deadlock."""
+    for name, dims, extra, vcs, failed in (("t444", "444", [], 2, 2),
+                                           ("t448tw", "448", ["--twisted", "--vcs", "3"], 3, 4)):
+        d = os.path.join(TMP, name)
+        out = exporter("torus.py", d, "--dims", *dims, "--ocs-fault", "z",
+                       "--scenario", "adjacent", "--ocs-distance", "2", *extra)
+        assert f"({failed} failed)" in out and "acyclic" in out and f"{vcs} VCs" in out, out
+        out = booksim([f"network_file={d}/topo.txt", f"fabric_path_file={d}/paths.txt",
+                       "routing_function=src", f"num_vcs={vcs}", "sim_type=throughput",
+                       "injection_rate=1.0", "max_samples=2", "sample_period=1000"])
+        assert "deadlock" not in out.lower(), "possible deadlock reported"
+        assert stat(out, "Accepted flit rate") > 0.05
+
+
+def utils_cdgcheck():
+    """cdgcheck.py passes fault-free routes and finds the channel dependency
+    cycle in twisted 4x4x8 fault routes that share 2 VCs with wild hops."""
+    d = os.path.join(TMP, "t448tw_free")
+    exporter("torus.py", d, "--dims", "4", "4", "8", "--twisted")
+    assert "acyclic" in exporter("cdgcheck.py", f"{d}/topo.txt", f"{d}/paths.txt")
+    d = os.path.join(TMP, "t448tw_v2")
+    out = exporter("torus.py", d, "--dims", "4", "4", "8", "--twisted", "--ocs-fault", "z")
+    assert "CYCLE" in out, out
+    p = subprocess.run([sys.executable, os.path.join(UTILS, "cdgcheck.py"), f"{d}/topo.txt",
+                        f"{d}/paths.txt"], capture_output=True, text=True, timeout=600)
+    assert p.returncode == 1 and "cycle of" in p.stdout, p.stdout
 
 
 def utils_torus_twisted_hops():
@@ -313,7 +330,7 @@ TESTS = [make_upstream_test(c) for c in UPSTREAM] + [
     fabric_latency_per_hop, fabric_dor_torus_hops, fabric_src_torus_fixture,
     fabric_switched_terminals, fabric_groupshift, fabric_matrix_errors, fabric_port_gap_error,
     fabric_measure_reorder, utils_boardfly_collectives, utils_torus_fault_routes,
-    utils_torus_twisted_hops,
+    utils_cdgcheck, utils_torus_twisted_hops,
 ] + [make_smoke_test(r, x) for r, x in (("lduato", []), ("duato", []), ("updown", []),
                                         ("esc", []), ("ugal", ["ugal_threshold=128"]))]
 

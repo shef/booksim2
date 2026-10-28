@@ -16,6 +16,8 @@ link rate. Only Ironwood is modelled here; 8t is assumed to share its layout.
 | Google cluster reliability blog | May 2026 | availability target: 130 of 144 cubes for 95% of the month |
 | Google TPU 8 technical deep dive | 2026 | 8t: 3D torus, 9,600-chip superpod, 2x Ironwood ICI |
 | Jouppi and Lakshmanamurthy, Hot Chips 2026 | Aug 2026 | 8t: 6 links x 8 lanes at 1.6 Tb/s per link; superpod drawn as 150 cubes |
+| Jouppi et al., "Google's Training Supercomputers from TPU v2 to Ironwood", IEEE Micro (arXiv 2606.15870) | 2026 | 96 optical links per cube, 48 OCSes per cube (6 x 16 / 2), per-link bandwidth by generation |
+| Cámara et al., "Twisted Torus Topologies for Enhanced Interconnection Networks", IEEE TPDS | 2010 | twisted torus routing; deadlock avoidance with bubble flow control |
 
 ## Physical fabric
 
@@ -29,12 +31,12 @@ link rate. Only Ironwood is modelled here; 8t is assumed to share its layout.
 
 ### OCS layout (derived)
 
-On TPU v4, 48 OCSes served 64 cubes. The count follows from the geometry: the
-+X link at a given face position of one cube must be able to meet the -X link
-at the same position of any other cube, so one switch carries one face
-position in one dimension for every cube. That gives 3 dimensions x 16
-positions = 48 switches, each with 2 ports per cube (128 for 64 cubes, on a
-136-port switch).
+On TPU v4, 48 OCSes served 64 cubes, and the IEEE Micro paper gives the
+reason: "to create the wraparound links of a 3D torus, links on opposing sides
+must connect to the same OCS. Therefore, each cube connects to 6 x 16 / 2 = 48
+OCSes." So one switch carries one face position in one dimension for every
+cube: 3 dimensions x 16 positions = 48 switches, each with 2 ports per cube
+(128 for 64 cubes, on a 136-port switch).
 
 Applied to Ironwood: 144 cubes x 2 = 288 ports per switch, 48 switches, and
 13,824 duplex fiber pairs between racks and switches. A 300-port switch fits
@@ -68,8 +70,52 @@ what a duplex link end uses.
   (`buffer_policy = shared`, a small private slice per VC) the port total
   counts.
 - Fault routes: NSDI 2024's method, dimension-order routing plus at most one
-  "wild" first hop per dimension, with the set of paths chosen to minimize the
-  busiest link under all-to-all traffic. Written as `src` routes.
+  "wild" first hop per dimension (in reverse dimension order), with the set of
+  paths chosen to minimize the busiest link under all-to-all traffic. Where no
+  such path survives, dimension-order routing that goes the long way round a
+  ring. Written as `src` routes. A failed dimension is never routed last
+  when its ring spans two cubes or more: one OCS then cuts both of the ring's
+  cube crossings in the affected columns, splitting the ring in two, and a
+  path's last leg cannot leave the destination's column, so with that
+  dimension last some pairs have no wild-first route at all (on 8x8x8 with a
+  Z fault, 4,352 of them). Any fixed order is deadlock-free, so the exporter
+  puts it first among equally long dimensions, or first outright.
+  Routes are set when a slice is configured and
+  stay fixed for the job (NSDI 2024); a failure during a job stops it, and
+  the slice is repaired or rerouted before it restarts, so old and new routes
+  never share the network.
+
+### Virtual channels and deadlock
+
+| Routing | VCs | Status |
+|---|---|---|
+| Dimension order, plain and twisted | 2 (dateline) | published (NSDI 2024); our routes have acyclic channel dependencies |
+| Wild-first fault routes | 2 | published for v4: deadlock-free "with one restriction: the wild hop order must be the reverse of the dimension order", and WFR "was influenced by the microarchitecture of the ICI switches", which is not published |
+
+In a plain wormhole router, which is what BookSim models, we could not
+reproduce the 2-VC claim beyond a single cube. With wild hops on VC 1 (VC 0
+when they cross a wraparound), the channel dependency graph is acyclic for
+all nine OCS fault cases on one 4x4x4 cube, but has cycles on 4x4x8 slices,
+plain and twisted, for every 2-VC rule we tried (64 variants). Giving wild
+hops a third VC makes every case we checked acyclic: dependencies then only
+run from the wild VC to the dimension-order VCs. The real switch presumably breaks those cycles in a way
+the paper does not describe; prioritizing in-transit traffic over injection,
+as bubble flow control does (Cámara et al. 2010), is one way a router can stay
+deadlock-free with a cyclic graph.
+
+Checked shapes: 4x4x4, 4x4x8, 4x4x8 twisted, 4x8x8 twisted and 8x8x8, each
+with one failed OCS in X, Y or Z (one face position, two adjacent, two
+spread). With 2 VCs only 4x4x4 is acyclic; with 3 VCs all 45 cases are, and
+every pair has a wild-first route (no shortest-path fallback). A cycle makes deadlock possible, not certain:
+on twisted 8x8x16 with one X or Z OCS down, BookSim ran the 2-VC routes under
+all-reduce and capped all-to-all without a deadlock, and throughput with 2
+and 3 VCs differed by less than 0.3%. The third VC costs nothing in
+throughput here; it only buys the guarantee.
+
+The exporter therefore offers `--vcs 2` (NSDI's count) and `--vcs 3` (provably
+deadlock-free here) and reports whether the routes' channel dependencies are
+acyclic; `utils/fabric/cdgcheck.py` checks any path file. The VC count of
+Ironwood and TPU 8 is not published.
 - Exporter: [`utils/fabric/torus.py`](../../utils/fabric/torus.py) (topology,
   fault-free and fault routes); all-reduce traffic from
   [`utils/fabric/collectives.py`](../../utils/fabric/collectives.py).
@@ -117,12 +163,13 @@ one failure unit holds two positions, 1 of 16 if it holds one.
 |---|---|---|---|---|
 | Cube | 4x4x4, copper inside | TPU7x docs | published | defines the model |
 | Pod | 144 cubes | 9,216 / 64 | derived | pod-level availability only |
-| OCS per face position | 1 switch, full pod reach | v4 geometry (ISCA 2023) | derived for v4, assumed for Ironwood | defines the failure unit |
+| OCS per face position | 1 switch, full pod reach | 48 OCSes per cube on v4 (IEEE Micro 2026) | published for v4, assumed for Ironwood | defines the failure unit |
 | OCS radix | about 300 duplex ports, 288 used | 288 needed; vendor product class | assumed | none (cost and spares) |
 | Positions lost per OCS failure | 1, or 2 if a box holds two | packaging not published | assumed | small: with 2 positions, adjacent and spread placements give the same all-to-all loss (87.1% kept on 4x4x8, Z) |
 | Hop latencies | 90 ns copper, 1,080 ns fiber (100 m to the OCS) | estimate | assumed | latency and buffer sizing; not throughput when buffers cover the round trip |
 | Receive buffer | 512 KB per port (Ironwood), 1 MB (8t), shared across VCs | sized for about 250 m of reach at each generation's link rate | assumed | none within reach; beyond it throughput falls as buffer / RTT |
 | 8t layout | same as Ironwood at 2x link rate | nothing published beyond pod size | assumed | 8t results are Ironwood results rescaled |
+| VCs | 2 fault-free; 2 or 3 with fault routes | 2 published for v4; count for Ironwood and TPU 8 unknown | assumed | 3 VCs needed for provably deadlock-free twisted fault routes in our router model (see above) |
 | 8t pod | 150 cubes, 32 chips per rack | Hot Chips 2026 superpod drawing | derived | pod-level availability only |
 
 ## Validation

@@ -8,7 +8,8 @@ leave a cube (including wraparounds) go through the OCS. Plain or twisted
 the long dimension(s) by k.
 
 Routes:
-  fault-free  dimension-order, longest dimension first, shortest direction,
+  fault-free  dimension-order, longest dimension first (see dim_order for
+              the order under a fault), shortest direction,
               ties broken by the source coordinate's parity (even -> positive),
               as in NSDI 2024. On a twisted torus the X and Y directions are
               chosen to minimize total hops given the shift their wraps cause.
@@ -24,10 +25,17 @@ Routes:
               order), one path per pair, the set chosen to minimize the busiest
               link under all-to-all traffic (rip-up and reroute standing in for
               NSDI's ILP), computed for one cube's sources and translated.
-VCs: 0 on entering a dimension, 1 from that dimension's wraparound hop on.
+VCs: dimension-order hops use 0 on entering a dimension and 1 from that
+dimension's wraparound hop on, which is deadlock-free (NSDI 2024). Wild hops
+(`--vcs`): with 2 VCs they use VC 1, or VC 0 if they cross a wraparound; with
+3 they use VC 2. NSDI 2024 says wild-first routing is deadlock-free with 2 VCs
+given the ICI switch microarchitecture, which is not published; in a plain
+wormhole router the 2-VC rule leaves the channel dependency graph acyclic
+only on a single 4x4x4 cube among the cases we checked, while 3 VCs always
+do. The exporter checks the graph (as cdgcheck.py does) and reports it.
 
 usage: torus.py OUTDIR [--dims X Y Z] [--twisted] [--ocs-fault x|y|z]
-                [--scenario one|adjacent|spread] [--ocs-distance M]
+                [--scenario one|adjacent|spread] [--vcs 2|3] [--ocs-distance M]
 """
 
 import argparse
@@ -35,6 +43,7 @@ import collections
 import itertools
 import os
 
+import cdgcheck
 import fabricio
 
 # Calibration (doc/systems/tpu-torus.md): per-hop latency in ns, including
@@ -45,6 +54,7 @@ FIBER_NS_PER_M = 5
 OCS_DISTANCE_M = 100
 CUBE = 4
 SCENARIOS = {"one": [(0, 0)], "adjacent": [(0, 0), (1, 0)], "spread": [(0, 0), (2, 2)]}
+fault_dim = None  # set by main from --ocs-fault
 
 
 def fiber_latency(distance_m):
@@ -84,15 +94,36 @@ def twist_type(D):
     raise SystemExit(f"--twisted needs k x k x 2k or k x 2k x 2k, not {D}")
 
 
-def dor_hops(s, d, D, twist):
+def dim_order(D, twist):
+    """Dimension routing order: longest first; on a twisted torus the short
+    dimensions, whose wraps shift the long ones, go last. A failed dimension
+    whose ring crosses two cube faces is never last: one OCS cuts both
+    crossings in a column, splitting the ring, and a path's last leg cannot
+    leave the destination's column, so some pairs would have no route.
+    Among equal lengths it goes first; if it is still last, it moves first."""
+    if twist:
+        short = [k for k in range(3) if D[k] == min(D)]
+        order = sorted((k for k in range(3) if k not in short), key=lambda k: -D[k])
+        order += sorted(short, key=lambda k: k != fault_dim)
+    else:
+        order = sorted(range(3), key=lambda k: (-D[k], k != fault_dim))
+    if fault_dim == order[-1] and D[fault_dim] > CUBE:
+        order = [fault_dim] + order[:-1]
+    return order
+
+
+def dor_hops(s, d, D, twist, longway=()):
+    """Dimension-order hops; on a plain torus, dimensions in `longway` go the
+    other way around their ring."""
     if not twist:
         hops = []
-        for dim in sorted(range(3), key=lambda k: -D[k]):
+        for dim in dim_order(D, 0):
             n, a, b = D[dim], s[dim], d[dim]
             delta = (b - a) % n
             if delta == 0:
                 continue
-            if 2 * delta < n or (2 * delta == n and a % 2 == 0):
+            plus = 2 * delta < n or (2 * delta == n and a % 2 == 0)
+            if plus != (dim in longway):
                 hops += [(dim, 0)] * delta
             else:
                 hops += [(dim, 1)] * (n - delta)
@@ -101,8 +132,9 @@ def dor_hops(s, d, D, twist):
     # the long ones), then route the long dimensions shortest from where the
     # shifts leave them; keep the fewest hops. Long dimensions go first on the
     # path (shifts commute, so the end point is the same).
-    shifters = [k for k in range(3) if D[k] == min(D)]
-    rest = sorted((k for k in range(3) if k not in shifters), key=lambda k: -D[k])
+    order = dim_order(D, twist)
+    shifters = [k for k in order if D[k] == min(D)]
+    rest = [k for k in order if k not in shifters]
     best = None
     opts = []
     for dim in shifters:
@@ -146,6 +178,39 @@ def faults_for(scenario, D, fdim, twist):
     return bad
 
 
+def dor_variants(s, d, D, twist):
+    """Every dimension-order path from s to d: each dimension may go either
+    way round its ring (on a twisted torus, the short dimensions' choice
+    shifts the long ones). All keep the dimension order, so the dateline VCs
+    stay deadlock-free."""
+    if not twist:
+        for r in range(4):
+            for lw in itertools.combinations(range(3), r):
+                yield dor_hops(s, d, D, 0, lw)
+        return
+    order = dim_order(D, twist)
+    shifters = [k for k in order if D[k] == min(D)]
+    rest = [k for k in order if k not in shifters]
+    opts = []
+    for dim in shifters:
+        n, delta = D[dim], (d[dim] - s[dim]) % D[dim]
+        opts.append([(0, delta)] if delta == 0 else [(0, delta), (1, n - delta)])
+    for choice in itertools.product(*opts):
+        hops = []
+        for dim, (sg, cnt) in zip(shifters, choice):
+            hops += [(dim, sg)] * cnt
+        p = s
+        for dim, sg in hops:
+            p = step(p, dim, sg, D, twist)
+        for signs in itertools.product((0, 1), repeat=len(rest)):
+            lh = []
+            for dim, sg in zip(rest, signs):
+                n, delta = D[dim], (d[dim] - p[dim]) % D[dim]
+                if delta:
+                    lh += [(dim, sg)] * (delta if sg == 0 else n - delta)
+            yield lh + hops
+
+
 def walk(s, hops, D, twist, bad):
     p = s
     for dim, sg in hops:
@@ -158,19 +223,26 @@ def walk(s, hops, D, twist, bad):
 
 def candidates(s, d, D, twist, bad):
     """DOR, and DOR preceded by one wild hop in each subset of dimensions;
-    a shortest path avoiding failures if none of those survive."""
-    order = sorted(range(3), key=lambda k: -D[k])
+    if none survive, the same with dimension-order tails that may go either
+    way round each ring (dor_variants); a shortest path avoiding failures if
+    still none survive. Returns (hops, wild hops at the start), -1 for that last
+    fallback, which can break deadlock freedom."""
+    order = dim_order(D, twist)
     out = []
-    for r in range(3):
-        for dims in itertools.combinations(order, r):
-            for signs in itertools.product((0, 1), repeat=r):
-                wild = list(zip(dims, signs))[::-1]
-                p = s
-                for dim, sg in wild:
-                    p = step(p, dim, sg, D, twist)
-                hops = wild + dor_hops(p, d, D, twist)
-                if walk(s, hops, D, twist, bad) == d:
-                    out.append(hops)
+    for stage in ("shortest", "any direction"):
+        for r in range(3):
+            for dims in itertools.combinations(order, r):
+                for signs in itertools.product((0, 1), repeat=r):
+                    wild = list(zip(dims, signs))[::-1]
+                    p = s
+                    for dim, sg in wild:
+                        p = step(p, dim, sg, D, twist)
+                    tails = [dor_hops(p, d, D, twist)] if stage == "shortest" else dor_variants(p, d, D, twist)
+                    for tail in tails:
+                        if walk(s, wild + tail, D, twist, bad) == d:
+                            out.append((wild + tail, r))
+        if out:
+            break
     if not out:
         prev = {s: None}
         queue = collections.deque([s])
@@ -188,13 +260,13 @@ def candidates(s, d, D, twist, bad):
         while prev[p]:
             p, dim, sg = prev[p]
             hops.append((dim, sg))
-        out = [hops[::-1]]
-    out.sort(key=len)
+        out = [(hops[::-1], -1)]
+    out.sort(key=lambda c: len(c[0]))
     uniq, seen = [], set()
-    for h in out:
-        if tuple(h) not in seen and len(h) <= len(out[0]) + 2:
+    for h, w in out:
+        if tuple(h) not in seen and len(h) <= len(out[0][0]) + 2:
             seen.add(tuple(h))
-            uniq.append(h)
+            uniq.append((h, w))
     return uniq
 
 
@@ -236,7 +308,7 @@ def optimize(D, twist, bad, iters=40):
                 continue
             cands = candidates(s, d, D, twist, bad)
             keys.append((s, d, cands))
-            pairs.append([links(s, h) for h in cands])
+            pairs.append([links(s, h) for h, _ in cands])
     choice = [0] * len(pairs)
     load = collections.Counter()
     for c in pairs:
@@ -271,14 +343,18 @@ def main():
     ap.add_argument("--twisted", action="store_true")
     ap.add_argument("--ocs-fault", choices=list("xyz"))
     ap.add_argument("--scenario", choices=list(SCENARIOS), default="adjacent")
+    ap.add_argument("--vcs", type=int, choices=[2, 3], default=2,
+                    help="VCs for fault routes: 2 (wild hops share them) or 3 (wild hops get VC 2)")
     ap.add_argument("--ocs-distance", type=float, default=OCS_DISTANCE_M,
                     help="TPU-to-OCS fiber length in metres (default %(default)s)")
     a = ap.parse_args()
     D = a.dims
     assert all(n % CUBE == 0 for n in D), "dimensions must be multiples of 4"
     twist = twist_type(D) if a.twisted else 0
+    global fault_dim
+    fault_dim = "xyz".index(a.ocs_fault) if a.ocs_fault else None
     N = D[0] * D[1] * D[2]
-    bad = faults_for(a.scenario, D, "xyz".index(a.ocs_fault), twist) if a.ocs_fault else set()
+    bad = faults_for(a.scenario, D, fault_dim, twist) if a.ocs_fault else set()
     lat = {0: LAT_COPPER, 1: fiber_latency(a.ocs_distance)}
 
     # Links: ports 1-6 = X+, X-, Y+, Y-, Z+, Z- before failed links are removed.
@@ -298,7 +374,7 @@ def main():
     else:
         canon, busiest = None, None
     sym, _ = translations(D)
-    routes, chips_of = [], []
+    routes, chips_of, deps, fallback = [], [], {}, 0
     for s in range(N):
         ps = coord(s, D)
         if canon is not None:
@@ -306,20 +382,30 @@ def main():
             shift = [c - b for c, b in zip(ps, base)]
         for dd in range(N):
             if canon is None:
-                d, hops = dd, dor_hops(ps, coord(dd, D), D, twist)
+                d, hops, nwild = dd, dor_hops(ps, coord(dd, D), D, twist), 0
             else:
                 pd = coord(dd, D)
-                hops = [] if pd == base else canon[(base, pd)]
+                hops, nwild = ([], 0) if pd == base else canon[(base, pd)]
                 d = index(translate(pd, shift, D, twist), D)
+            fallback += nwild < 0
             route, chips, p, prev, vc = [], [], ps, None, 0
-            for dim, sg in hops:
+            for i, (dim, sg) in enumerate(hops):
                 chips.append(index(p, D))
-                if dim != prev:
-                    vc = 0
                 assert (index(p, D), dim, sg) in nbr, ("route uses a failed link", ps, dd)
-                if (p[dim] == D[dim] - 1 and sg == 0) or (p[dim] == 0 and sg == 1):
-                    vc = 1
-                route.append((1 + 2 * dim + sg, vc))
+                wrap = (p[dim] == D[dim] - 1 and sg == 0) or (p[dim] == 0 and sg == 1)
+                if i < nwild:
+                    v = 2 if a.vcs == 3 else 0 if wrap else 1
+                else:
+                    if dim != prev or i == nwild:
+                        vc = 0
+                    if wrap:
+                        vc = 1
+                    v = vc
+                route.append((1 + 2 * dim + sg, v))
+                deps.setdefault((chips[-1], dim, sg, v), set())
+                if route[1:]:
+                    deps[last].add((chips[-1], dim, sg, v))
+                last = (chips[-1], dim, sg, v)
                 p, prev = step(p, dim, sg, D, twist), dim
             assert index(p, D) == d
             routes.append((s, d, route))
@@ -338,9 +424,14 @@ def main():
     fabricio.write_topology(os.path.join(a.outdir, "topo.txt"), N, out_links)
     fabricio.write_paths(os.path.join(a.outdir, "paths.txt"), routes)
     hops = [len(r) for _, _, r in routes]
+    acyclic = cdgcheck.find_cycle(deps) is None
     print(f"{a.outdir}: {N} chips, {len(out_links)} links ({len(bad) // 2} failed), "
           f"mean {sum(hops) / len(hops):.3f} hops, max {max(hops)}"
-          + (f", busiest link {busiest} under all-to-all" if busiest else ""))
+          + (f", busiest link {busiest} under all-to-all" if busiest else "")
+          + f", {1 + max(v for _, _, r in routes for _, v in r)} VCs"
+          + (f", {fallback} fallback paths" if fallback else ""))
+    print("channel dependencies: " + ("acyclic (deadlock-free)" if acyclic else
+          "CYCLE: these routes can deadlock in a wormhole router (try --vcs 3)"))
 
 
 if __name__ == "__main__":

@@ -25,4 +25,8 @@ At exit the network reports how many packets finished on escape VCs and, for
   stays acyclic for any group path length, including detours around failed
   links. The exporter is responsible for the tables meeting these rules.
 - `src`: the path file's VCs must be deadlock-free; the network does not
-  check them.
+  check them. `utils/fabric/cdgcheck.py TOPO PATHS` builds the channel
+  dependency graph (channel = router, output port, VC) and reports a cycle if
+  there is one; with wormhole switching, no cycle means no deadlock (Dally and
+  Seitz, 1987). A cycle means a deadlock is possible, not that a run will hit
+  it.
