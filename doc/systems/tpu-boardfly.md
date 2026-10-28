@@ -86,6 +86,9 @@ reach every other group directly, plus 1 spare.
   hops".
 - Zero-load latency is 47% below an 8x8x16 torus at the same link
   latencies, matching Google's "up to 50% lower latency".
+- With 1 MB shared buffers per port, all-reduce and all-to-all throughput are
+  unchanged from 30 m to 300 m between TPU and OCS; only latency grows (about
+  10 ns per metre, one fiber crossing per packet on average).
 
 ## Open questions
 

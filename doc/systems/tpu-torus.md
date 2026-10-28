@@ -129,6 +129,15 @@ one failure unit holds two positions, 1 of 16 if it holds one.
 
 - Mean hop count of dimension-order routing on 8x8x16 matches the analytical
   value (8 links).
+- Buffer reach: on twisted 8x8x16 with the buffers above, all-reduce and
+  all-to-all throughput are within 1-2% of their 30 m values out to 200 m
+  from TPU to OCS, and fall about 13% at 300 m, past the 250 m reach; the
+  predicted buffer / RTT is 0.85. Ironwood and 8t agree, as they should: in
+  cycles the two models differ only in copper latency.
+- Simulator caveat: past saturation the torus with shared buffers can
+  collapse (accepted load falls to about half), most readily in the Ironwood
+  model on its 2 ns cycle. Measure saturation throughput with an offered
+  load just above it, not far past it.
 - To do: reproduce NSDI 2024's measured throughput under one OCS failure on a
   4x4x4 slice with our fault routes.
 
