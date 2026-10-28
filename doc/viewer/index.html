@@ -1,0 +1,646 @@
+<meta charset="utf-8">
+<title>Collectives in Motion</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600&display=swap">
+<style>
+/* Layout: an instrument panel. A dark scope with the transport bar under it on the left,
+   a reading column on the right; on narrow screens the reading column follows the transport. */
+:root {
+  --bg: #f3f4f1;
+  --panel: #ffffff;
+  --fg: #1d2127;
+  --muted: #5d6673;
+  --rule: #d9dcd6;
+  --accent: #2b6cb0;
+  --scope: #0e1217;
+  --scope-ink: #c9d1dc;
+  --scope-dim: #7d8794;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-label: "IBM Plex Sans Condensed", "IBM Plex Sans", system-ui, sans-serif;
+  --font-data: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #12151a; --panel: #1a1e25; --fg: #e3e6ea; --muted: #9aa3ae; --rule: #2b313a;
+    --accent: #7aa2f7; --scope: #0a0d11; --scope-ink: #c9d1dc; --scope-dim: #7d8794; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #12151a; --panel: #1a1e25; --fg: #e3e6ea; --muted: #9aa3ae; --rule: #2b313a;
+  --accent: #7aa2f7; --scope: #0a0d11; --scope-ink: #c9d1dc; --scope-dim: #7d8794; color-scheme: dark;
+}
+body {
+  background: var(--bg); color: var(--fg); font: 15px/1.55 var(--font-body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 16px 24px;
+}
+.wrap { max-width: 1320px; margin: 0 auto; display: grid; gap: 14px; }
+header { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 10px 24px; }
+h1 { font: 600 22px/1.2 var(--font-label); letter-spacing: .01em; margin: 0; text-wrap: balance; }
+h1 small { display: block; font: 400 14px/1.4 var(--font-body); color: var(--muted); letter-spacing: 0; margin-top: 2px; }
+.picker { display: flex; flex-wrap: wrap; gap: 8px 18px; min-width: 0; }
+.group { display: grid; gap: 4px; min-width: 0; }
+.group > span { font: 600 11px var(--font-label); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+.tabs button {
+  font: 500 13px var(--font-label); letter-spacing: .02em;
+  padding: 6px 11px; border: 1px solid var(--rule); background: var(--panel); color: var(--fg);
+  border-radius: 4px; cursor: pointer; white-space: nowrap; min-height: 32px;
+}
+.tabs button:hover { border-color: var(--muted); }
+.tabs button[aria-pressed="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.main { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 14px; align-items: start; }
+.left { display: grid; gap: 12px; min-width: 0; }
+aside { display: grid; gap: 12px; min-width: 0; }
+@media (max-width: 960px) {
+  .main { grid-template-columns: minmax(0, 1fr); }
+  aside { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); align-items: start; }
+}
+.scope {
+  position: relative; background: var(--scope); border-radius: 6px; overflow: hidden;
+  height: clamp(300px, 64vh, 780px); max-width: 100%; touch-action: none; cursor: grab;
+}
+.scope.flat { cursor: default; touch-action: pan-y; }
+.scope:not(.flat):active { cursor: grabbing; }
+@media (max-width: 600px) { .scope { height: clamp(300px, 60vh, 560px); } }
+canvas { display: block; width: 100%; height: 100%; }
+.scope .title {
+  position: absolute; left: 14px; top: 10px; right: 14px; color: var(--scope-ink);
+  font: 500 14px var(--font-label); letter-spacing: .02em; pointer-events: none; text-wrap: balance;
+}
+.scope .hint {
+  position: absolute; left: 14px; right: 14px; bottom: 10px; color: var(--scope-dim); font: 12px var(--font-body); pointer-events: none;
+}
+.scope .tip {
+  position: absolute; padding: 3px 7px; background: #1f2630; color: #e3e6ea; border-radius: 3px;
+  font: 12px var(--font-data); pointer-events: none; white-space: nowrap; z-index: 2;
+}
+.card { background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; padding: 14px 16px; min-width: 0; }
+.card h2 {
+  font: 600 12px var(--font-label); letter-spacing: .08em; text-transform: uppercase;
+  color: var(--muted); margin: 0 0 6px;
+}
+.card p { margin: 0; }
+#nowt { font: 600 16px var(--font-label); margin: 0 0 4px; display: flex; align-items: center; gap: 8px; }
+#nowt i { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.legend { display: grid; gap: 6px; font-size: 13px; }
+.legend div { display: flex; align-items: center; gap: 8px; }
+.swatch { width: 22px; height: 0; border-top: 3px solid; flex: none; }
+.swatch.dash { border-top-style: dashed; }
+.dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.sq { width: 11px; height: 11px; border-radius: 2px; flex: none; position: relative; }
+.sq.head::after { content: ""; position: absolute; inset: 3.5px; border-radius: 50%; background: #0e1217; }
+.opts { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px; margin-top: 10px; }
+.opts:empty { display: none; }
+.opts label { display: flex; gap: 6px; align-items: center; cursor: pointer; }
+#follow { font-size: 13px; color: var(--muted); margin-top: 8px; }
+#follow:empty { display: none; }
+#follow b { color: var(--fg); font-weight: 500; }
+#follow a { color: var(--accent); }
+.transport { background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; padding: 10px 14px 12px; display: grid; gap: 8px; min-width: 0; }
+.row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
+.ctl {
+  font: 500 13px var(--font-label); padding: 6px 11px; border: 1px solid var(--rule); border-radius: 4px;
+  background: var(--bg); color: var(--fg); cursor: pointer; min-height: 32px;
+}
+.ctl.primary { background: var(--fg); color: var(--bg); border-color: var(--fg); min-width: 76px; }
+select.ctl { padding: 4px 6px; }
+.speed { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+.clock { font: 13px var(--font-data); color: var(--muted); font-variant-numeric: tabular-nums; margin-left: auto; }
+#scrub { width: 100%; margin: 0; accent-color: var(--accent); min-height: 24px; }
+.strip { position: relative; height: 36px; }
+.seg {
+  position: absolute; top: 0; height: 100%; border-radius: 3px; border: 1px solid var(--rule);
+  background: var(--bg); color: var(--fg); font: 500 11px/1.15 var(--font-label); letter-spacing: .02em;
+  padding: 2px 5px; overflow: hidden; text-align: left; cursor: pointer;
+  display: flex; align-items: center; gap: 5px;
+}
+.seg:hover { border-color: var(--muted); }
+.seg i { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--muted); }
+.seg.on { border-color: var(--accent); box-shadow: inset 0 -2px 0 var(--accent); }
+.seg span { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.seg.tight { justify-content: center; padding: 0; }
+.seg.tight span { display: none; }
+.foot { font-size: 12px; color: var(--muted); margin: 0; }
+.foot code { font: 12px var(--font-data); }
+@media (max-width: 600px) {
+  h1 { font-size: 20px; }
+  .clock { margin-left: 0; width: 100%; order: 9; }
+}
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Collectives in Motion <small>How data and flits move through TPU fabrics</small></h1>
+    <nav class="picker" id="picker" aria-label="Scenario"></nav>
+  </header>
+  <div class="main">
+    <div class="left">
+      <div class="scope" id="scope">
+        <canvas id="cv"></canvas>
+        <div class="title" id="stitle"></div>
+        <div class="hint" id="hint"></div>
+        <div class="tip" id="tip" hidden></div>
+      </div>
+      <div class="transport">
+        <div class="row">
+          <button class="ctl primary" id="play">Pause</button>
+          <button class="ctl" id="prev" aria-label="Previous step">‹ Step</button>
+          <button class="ctl" id="next" aria-label="Next step">Step ›</button>
+          <label class="speed" for="speed">Speed
+            <select class="ctl" id="speed">
+              <option value="0.5">0.5×</option><option value="1" selected>1×</option>
+              <option value="2">2×</option><option value="4">4×</option>
+            </select>
+          </label>
+          <span class="clock" id="clock"></span>
+        </div>
+        <input type="range" id="scrub" min="0" max="1" step="0.01" value="0" aria-label="Timeline">
+        <div class="strip" id="strip"></div>
+        <p class="foot" id="stripkey"></p>
+      </div>
+    </div>
+    <aside>
+      <section class="card" aria-live="polite"><h2>Now</h2><h3 id="nowt"></h3><p id="nowd"></p></section>
+      <section class="card"><h2>What is happening</h2><p id="intro"></p></section>
+      <section class="card">
+        <h2>Legend</h2>
+        <div class="legend" id="legend"></div>
+        <div class="opts" id="opts"></div>
+        <div id="follow"></div>
+      </section>
+    </aside>
+  </div>
+  <p class="foot">Timing is not to scale. Wiring and paths come from the fork's exporters
+    (<code>utils/fabric/scenes.py</code>); the ring scenes come from a small flit-level simulator
+    (<code>utils/fabric/flitsim.py</code>).</p>
+</div>
+
+<script>
+const GROUPS = [
+  ["Fabric", [
+    ["torus-allreduce", "Torus all-reduce"],
+    ["boardfly-allreduce", "Boardfly all-reduce"],
+    ["torus-alltoall", "Torus all-to-all"],
+    ["boardfly-alltoall", "Boardfly all-to-all"],
+  ]],
+  ["Inside the links", [
+    ["ring-deadlock", "Deadlock"],
+    ["ring-bigbuffer", "Deeper buffers"],
+    ["ring-dateline", "Virtual channels"],
+  ]],
+];
+const ALL = GROUPS.flatMap((g) => g[1].map((s) => s[0]));
+const FOLLOW_IN = "#66d9e8", WAIT = "#ff6b6b";
+const $ = (id) => document.getElementById(id);
+const cv = $("cv"), ctx = cv.getContext("2d"), scope = $("scope");
+const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const coarse = matchMedia("(pointer: coarse)").matches;
+const cache = {};
+let S = null, t = 0, playing = !reduced, speed = 1, follow = null, curSeg = -1;
+let yaw = 0.62, pitch = 0.32, zoom = 1, spin = false, showLoad = true, linkOf = null;
+
+// ---------- loading and panels ----------
+async function load(name) {
+  if (!cache[name]) {
+    const r = await fetch(`data/${name}.json`);
+    if (!r.ok) throw new Error(`Could not load ${name}.json (${r.status})`);
+    cache[name] = await r.json();
+  }
+  return cache[name];
+}
+
+function prepareFabric(s) {
+  linkOf = new Map();
+  s.links.forEach((l, i) => {
+    const a = `${l[0]},${l[1]}`, b = `${l[1]},${l[0]}`;
+    if (!linkOf.has(a)) linkOf.set(a, [i, false]);
+    if (!linkOf.has(b)) linkOf.set(b, [i, true]);
+  });
+  let r = 0;
+  for (const n of s.nodes) r = Math.max(r, Math.hypot(n[0], n[1], n[2]));
+  for (const l of s.links) if (l[3]) r = Math.max(r, Math.hypot(...l[3]) * 0.75);
+  s.radius = r;
+  s.load = new Float32Array(s.links.length);
+}
+
+async function select(name) {
+  for (const b of document.querySelectorAll(".tabs button")) b.setAttribute("aria-pressed", b.dataset.name === name);
+  try { history.replaceState(null, "", location.search + "#" + name); } catch (e) {}
+  let s;
+  try { s = await load(name); }
+  catch (e) { $("nowt").textContent = "Could not load this scene"; $("nowd").textContent = e.message; return; }
+  S = s;
+  const ring = S.type === "ring";
+  if (!ring) prepareFabric(S);
+  follow = S.follow ?? null; t = 0; curSeg = -1;
+  scope.classList.toggle("flat", ring);
+  $("stitle").textContent = S.title;
+  $("intro").innerHTML = S.intro;
+  $("scrub").max = S.period;
+  $("hint").textContent = ring
+    ? (coarse ? "Tap a flit to see its packet" : "Hover a flit to see its packet")
+    : (coarse ? "Drag to rotate · pinch to zoom · tap a chip to follow it"
+              : "Drag to rotate · scroll to zoom · click a chip to follow it");
+  $("stripkey").textContent = (!ring && S.title.includes("all-reduce") ? "RS = reduce-scatter, AG = all-gather. " : "") +
+    (coarse ? "Tap a step to jump to it." : "Click a step to jump to it. Space plays and pauses; arrow keys step.");
+  buildLegend(); buildOpts(); buildStrip(); updateFollow(); updateNow();
+}
+
+function legendRow(html) { const d = document.createElement("div"); d.innerHTML = html; $("legend").append(d); }
+function buildLegend() {
+  $("legend").innerHTML = "";
+  if (S.type === "ring") {
+    S.palette.forEach((c, i) => legendRow(`<span class="sq" style="background:${c}"></span>packet from chip ${i}`));
+    legendRow(`<span class="sq head" style="background:#c9d1dc"></span>head flit: claims the next buffer`);
+    legendRow(`<span class="swatch dash" style="border-color:${WAIT}"></span>head waiting for room in the next buffer`);
+    if (S.vcs > 1) legendRow(`<span class="swatch" style="border-color:#8b95a3"></span>two lanes per link: VC 0 outside, VC 1 inside`);
+    return;
+  }
+  for (const k in S.kinds) {
+    const d = S.kinds[k];
+    legendRow(`<span class="swatch${d.dash ? " dash" : ""}" style="border-color:${d.color}"></span>${d.name}`);
+  }
+  if (S.title.startsWith("Ring")) ["A", "B", "C"].forEach((n, i) => legendRow(`<span class="dot" style="background:${S.palette[i]}"></span>shard ${n}`));
+  else if (S.segments.some((s) => s[4])) ["tray stage", "group stage", "global stage"].forEach((n, i) => legendRow(`<span class="dot" style="background:${S.palette[i]}"></span>${n}`));
+  else {
+    legendRow(`<span class="dot" style="background:${S.palette[0]}"></span>piece sent by the followed chip`);
+    legendRow(`<span class="dot" style="background:${FOLLOW_IN}"></span>piece arriving at the followed chip`);
+  }
+}
+function buildOpts() {
+  const el = $("opts"); el.innerHTML = "";
+  if (S.type === "ring") return;
+  el.innerHTML = `<label><input type="checkbox" id="optLoad"${showLoad ? " checked" : ""}> Link load</label>
+    <label><input type="checkbox" id="optSpin"${spin ? " checked" : ""}> Spin</label>`;
+  $("optLoad").onchange = (e) => { showLoad = e.target.checked; };
+  $("optSpin").onchange = (e) => { spin = e.target.checked; };
+}
+function updateFollow() {
+  const el = $("follow");
+  if (S.type === "ring") { el.innerHTML = ""; return; }
+  if (follow == null) { el.textContent = (coarse ? "Tap" : "Click") + " a chip to follow only its traffic."; return; }
+  el.innerHTML = `Following <b>${S.nodes[follow][3]}</b> · <a href="#" id="unfollow">show all chips</a>`;
+  $("unfollow").onclick = (e) => { e.preventDefault(); follow = null; updateFollow(); };
+}
+function shortLabel(s) { return s.replace("Reduce-scatter", "RS").replace("All-gather", "AG").replace(": ", " "); }
+function buildStrip() {
+  const el = $("strip"); el.innerHTML = "";
+  S.segments.forEach((s) => {
+    const b = document.createElement("button");
+    b.className = "seg"; b.title = s[2];
+    b.style.left = `${(s[0] / S.period) * 100}%`;
+    b.style.width = `calc(${((s[1] - s[0]) / S.period) * 100}% - 2px)`;
+    b.innerHTML = `<i${s[4] ? ` style="background:${s[4]}"` : ""}></i><span>${shortLabel(s[2])}</span>`;
+    b.onclick = () => { t = s[0]; updateNow(); };
+    el.append(b);
+  });
+  fitStrip();
+}
+function fitStrip() {
+  for (const b of $("strip").children) b.classList.toggle("tight", b.clientWidth < 52);
+}
+new ResizeObserver(() => { if (S) fitStrip(); }).observe($("strip"));
+
+function segAt(time) {
+  let k = -1;
+  S.segments.forEach((s, i) => { if (time >= s[0] - 0.01) k = i; });
+  return k;
+}
+function updateNow() {
+  const k = segAt(t);
+  $("scrub").value = t;
+  if (S.type === "ring") {
+    const f = S.frames[Math.min(S.frames.length - 1, Math.floor(t))];
+    $("clock").textContent = `cycle ${Math.floor(t)} · delivered ${f.d} of ${S.packets.length}`;
+  } else $("clock").textContent = `beat ${t.toFixed(1)} of ${S.period.toFixed(0)}`;
+  if (k === curSeg) return;
+  curSeg = k;
+  [...$("strip").children].forEach((b, i) => b.classList.toggle("on", i === k));
+  if (k < 0) { $("nowt").textContent = "Start"; $("nowd").textContent = "Press play or drag the timeline."; return; }
+  const s = S.segments[k];
+  $("nowt").innerHTML = (s[4] ? `<i style="background:${s[4]}"></i>` : "") + s[2];
+  $("nowd").textContent = s[3];
+}
+
+// ---------- fabric renderer (3D) ----------
+function view(w, h) {
+  return { cx: w / 2, cy: h / 2 + 10, sc: (Math.min(w, h * 1.15) / (2.3 * S.radius)) * zoom,
+    cy_: Math.cos(yaw), sy_: Math.sin(yaw), cp: Math.cos(pitch), sp: Math.sin(pitch), dist: S.radius * 4 };
+}
+function proj(V, x, y, z) {
+  const x1 = x * V.cy_ - z * V.sy_, z1 = x * V.sy_ + z * V.cy_;
+  const y1 = y * V.cp - z1 * V.sp, z2 = y * V.sp + z1 * V.cp;
+  const f = V.dist / (V.dist + z2);
+  return [V.cx + x1 * V.sc * f, V.cy - y1 * V.sc * f, z2, f];
+}
+function linkPoint(l, u) {
+  const a = S.nodes[l[0]], b = S.nodes[l[1]], c = l[3];
+  if (!c) return [a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u, a[2] + (b[2] - a[2]) * u];
+  const m = 1 - u;
+  return [0, 1, 2].map((k) => m * m * a[k] + 2 * m * u * c[k] + u * u * b[k]);
+}
+function drawFabric(w, h) {
+  const V = view(w, h), P = S.nodes.map((n) => proj(V, n[0], n[1], n[2])), zr = S.radius;
+  S.load.fill(0);
+  const dots = [];
+  for (const e of S.events) {
+    const path = e[3], L = path.length - 1, u = t - e[0];
+    if (u < 0 || u > L) continue;
+    let col = S.palette[e[1]];
+    if (follow != null) {
+      if (path[0] === follow) {} else if (path[L] === follow) col = FOLLOW_IN; else continue;
+    }
+    const i = Math.min(L - 1, Math.floor(u)), f = u - i;
+    const m = linkOf.get(`${path[i]},${path[i + 1]}`);
+    if (!m) continue;
+    S.load[m[0]] += 1;
+    const p = linkPoint(S.links[m[0]], m[1] ? 1 - f : f);
+    dots.push([proj(V, p[0], p[1], p[2]), col, e[2], Math.min(1, u * 6, (L - u) * 6 + 0.25)]);
+  }
+  let maxLoad = 0;
+  for (const v of S.load) maxLoad = Math.max(maxLoad, v);
+  const order = S.links.map((l, i) => [i, (P[l[0]][2] + P[l[1]][2]) / 2]).sort((a, b) => b[1] - a[1]);
+  for (const [i, z] of order) {
+    const l = S.links[i], kind = S.kinds[l[2]];
+    const depth = 0.35 + 0.65 * (1 - (z + zr) / (2 * zr));
+    const ld = showLoad && maxLoad ? S.load[i] / maxLoad : 0;
+    ctx.strokeStyle = kind.color;
+    ctx.globalAlpha = Math.min(1, (0.22 + 0.55 * ld) * (0.5 + depth));
+    ctx.lineWidth = 0.8 + 3.2 * ld;
+    ctx.setLineDash(kind.dash ? [4, 4] : []);
+    ctx.beginPath();
+    if (!l[3]) { ctx.moveTo(P[l[0]][0], P[l[0]][1]); ctx.lineTo(P[l[1]][0], P[l[1]][1]); }
+    else for (let s = 0; s <= 16; s++) {
+      const p = linkPoint(l, s / 16), q = proj(V, p[0], p[1], p[2]);
+      s ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]);
+    }
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+  P.forEach((p, i) => {
+    const depth = 0.35 + 0.65 * (1 - (p[2] + zr) / (2 * zr));
+    ctx.globalAlpha = 0.45 + 0.55 * depth;
+    ctx.fillStyle = i === follow ? "#ffffff" : "#8b95a3";
+    ctx.beginPath(); ctx.arc(p[0], p[1], (i === follow ? 5 : 3) * p[3], 0, 7); ctx.fill();
+    if (i === follow) {
+      ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 1.5; ctx.globalAlpha = 0.8;
+      ctx.beginPath(); ctx.arc(p[0], p[1], 9 * p[3], 0, 7); ctx.stroke();
+    }
+  });
+  dots.sort((a, b) => b[0][2] - a[0][2]);
+  for (const [q, col, sc, fade] of dots) {
+    ctx.globalAlpha = fade; ctx.fillStyle = col;
+    ctx.beginPath(); ctx.arc(q[0], q[1], Math.max(1.4, 4 * sc * q[3]), 0, 7); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  S._pick = P.map((p, i) => [p[0], p[1], i]);
+}
+
+// ---------- ring renderer (2D) ----------
+// Routers sit on the corners of a square, numbered clockwise from the top left. Each edge is
+// the link into the next router; its buffer (one lane per VC) sits at the downstream end.
+function ringGeom(w, h) {
+  const top = 44, bottom = 34, qroom = 64; // queue labels sit above and below the chips
+  const size = Math.max(130, Math.min(w - 110, h - top - bottom - 2 * qroom));
+  const ox = (w - size) / 2, oy = top + qroom + Math.max(0, (h - top - bottom - 2 * qroom - size) / 2);
+  const corners = [[0, 0], [1, 0], [1, 1], [0, 1]].map(([x, y]) => [ox + x * size, oy + y * size]);
+  const box = Math.max(44, Math.min(78, size * 0.17));
+  const slot = Math.min(24, (size - box - 30) * 0.6 / S.cap);
+  const lane = S.vcs > 1 ? Math.max(slot * 1.15, 14) : 0;
+  return { size, corners, box, slot, lane, n: S.n, center: [ox + size / 2, oy + size / 2] };
+}
+function edge(G, r) { // link from r-1 into r
+  const a = G.corners[(r - 1 + G.n) % G.n], b = G.corners[r];
+  const L = Math.hypot(b[0] - a[0], b[1] - a[1]), d = [(b[0] - a[0]) / L, (b[1] - a[1]) / L];
+  return { a, b, d, nrm: [d[1], -d[0]] };
+}
+function laneOff(G, v) { return S.vcs > 1 ? (v === 0 ? G.lane / 2 : -G.lane / 2) : 0; }
+function slotPos(G, r, v, k) {
+  const e = edge(G, r), o = laneOff(G, v);
+  const end = G.box / 2 + 8 + (k + 0.5) * G.slot;
+  return [e.b[0] - e.d[0] * end + e.nrm[0] * o, e.b[1] - e.d[1] * end + e.nrm[1] * o];
+}
+function startPos(G, r, v) { // where a flit leaving router r enters its outgoing link
+  const e = edge(G, (r + 1) % G.n), o = laneOff(G, v), s = G.box / 2 + 6;
+  return [e.a[0] + e.d[0] * s + e.nrm[0] * o, e.a[1] + e.d[1] * s + e.nrm[1] * o];
+}
+function queuePos(G, r) {
+  const c = G.corners[r], dy = c[1] < G.center[1] ? -1 : 1;
+  return [c[0], c[1] + dy * (G.box / 2 + 24)];
+}
+function flitMap(G, f) {
+  const m = new Map();
+  f.b.forEach((list, bi) => {
+    const r = Math.floor(bi / S.vcs), v = bi % S.vcs;
+    list.forEach(([pid, fi], k) => m.set(`${pid}.${fi}`, { p: slotPos(G, r, v, k), r, v, pid, fi }));
+  });
+  return m;
+}
+function label(text, x, y, font, color, align = "center") {
+  ctx.font = font; ctx.fillStyle = color; ctx.textAlign = align; ctx.textBaseline = "middle"; ctx.fillText(text, x, y);
+}
+function drawRing(w, h) {
+  const G = ringGeom(w, h), K = S.frames.length;
+  const k = Math.min(K - 1, Math.floor(t)), k1 = Math.min(K - 1, k + 1);
+  const raw = Math.min(1, t - k), u = raw < 0.5 ? 2 * raw * raw : 1 - 2 * (1 - raw) * (1 - raw);
+  const F0 = flitMap(G, S.frames[k]), F1 = flitMap(G, S.frames[k1]), f0 = S.frames[k];
+  const dead = S.deadlockAt != null && k >= S.deadlockAt;
+  const condensed = (px, wt = 500) => `${wt} ${px}px "IBM Plex Sans Condensed", system-ui, sans-serif`;
+
+  for (let r = 0; r < G.n; r++) {
+    const e = edge(G, r), from = (r - 1 + G.n) % G.n;
+    for (let v = 0; v < S.vcs; v++) {
+      const s = startPos(G, from, v), en = slotPos(G, r, v, -0.5);
+      ctx.globalAlpha = 1; ctx.strokeStyle = "#3a424e"; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(s[0], s[1]); ctx.lineTo(en[0], en[1]); ctx.stroke();
+      const q = G.slot * 0.86;
+      ctx.strokeStyle = "#4a5361"; ctx.lineWidth = 1;
+      for (let c = 0; c < S.cap; c++) { const p = slotPos(G, r, v, c); ctx.strokeRect(p[0] - q / 2, p[1] - q / 2, q, q); }
+      if (S.vcs > 1) {
+        const lp = slotPos(G, r, v, S.cap + 0.9);
+        label(`VC${v}`, lp[0], lp[1], `500 ${Math.max(10, Math.min(12, G.slot * 0.5))}px "IBM Plex Mono", monospace`, "#7d8794");
+      }
+    }
+    const tip = [e.b[0] - e.d[0] * (G.box / 2 + 2), e.b[1] - e.d[1] * (G.box / 2 + 2)];
+    ctx.fillStyle = "#4a5361"; ctx.beginPath();
+    ctx.moveTo(tip[0], tip[1]);
+    ctx.lineTo(tip[0] - e.d[0] * 8 + e.nrm[0] * 5, tip[1] - e.d[1] * 8 + e.nrm[1] * 5);
+    ctx.lineTo(tip[0] - e.d[0] * 8 - e.nrm[0] * 5, tip[1] - e.d[1] * 8 - e.nrm[1] * 5);
+    ctx.fill();
+    if (S.dateline && r === 0) { // the link from the last chip back to chip 0
+      const m = [(e.a[0] + e.b[0]) / 2, (e.a[1] + e.b[1]) / 2 + G.slot * 1.4];
+      ctx.strokeStyle = "#e3b341"; ctx.setLineDash([3, 3]); ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(m[0] - G.lane * 1.4, m[1]); ctx.lineTo(m[0] + G.lane * 1.4, m[1]); ctx.stroke();
+      ctx.setLineDash([]);
+      label("dateline", m[0] + G.lane * 1.4 + 6, m[1], condensed(12), "#e3b341", "left");
+    }
+  }
+  for (let r = 0; r < G.n; r++) {
+    const c = G.corners[r], b = G.box;
+    ctx.fillStyle = "#1c222b"; ctx.strokeStyle = S.palette[r]; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.roundRect(c[0] - b / 2, c[1] - b / 2, b, b, 6); ctx.fill(); ctx.stroke();
+    label(`chip ${r}`, c[0], c[1], condensed(Math.max(12, Math.min(16, b * 0.22)), 600), "#e3e6ea");
+    const q = queuePos(G, r), waiting = f0.q[r];
+    waiting.slice(0, 4).forEach((p, i) => {
+      ctx.fillStyle = S.palette[r]; ctx.globalAlpha = 0.85;
+      ctx.fillRect(q[0] - 20 + i * 11, q[1] - 12, 8, 8);
+    });
+    ctx.globalAlpha = 1;
+    label(waiting.length ? `${waiting.length} queued` : "queue empty", q[0], q[1] + 6, `12px "IBM Plex Sans", system-ui, sans-serif`, "#7d8794");
+  }
+  for (const [r, v, tr, tv] of f0.w) {
+    const a = slotPos(G, r, v, 0), b = slotPos(G, tr, tv, S.cap - 1), c = G.corners[r];
+    ctx.strokeStyle = WAIT; ctx.lineWidth = dead ? 2.5 : 1.5; ctx.setLineDash([5, 4]); ctx.globalAlpha = 0.95;
+    ctx.beginPath(); ctx.moveTo(a[0], a[1]);
+    ctx.quadraticCurveTo(c[0] + (G.center[0] - c[0]) * 0.45, c[1] + (G.center[1] - c[1]) * 0.45, b[0], b[1]);
+    ctx.stroke(); ctx.setLineDash([]);
+  }
+  ctx.globalAlpha = 1;
+  const q = G.slot * 0.7, pick = [];
+  const drawFlit = (p, pid, fi, alpha) => {
+    ctx.globalAlpha = alpha; ctx.fillStyle = S.palette[S.packets[pid][0]];
+    ctx.beginPath(); ctx.roundRect(p[0] - q / 2, p[1] - q / 2, q, q, 2); ctx.fill();
+    if (fi === 0) { ctx.fillStyle = "#0e1217"; ctx.beginPath(); ctx.arc(p[0], p[1], q * 0.18, 0, 7); ctx.fill(); }
+    pick.push([p[0], p[1], pid, fi]);
+  };
+  for (const [key, b] of F1) {
+    const a = F0.get(key), from = a ? a.p : startPos(G, (b.r - 1 + G.n) % G.n, b.v);
+    drawFlit([from[0] + (b.p[0] - from[0]) * u, from[1] + (b.p[1] - from[1]) * u], b.pid, b.fi, a ? 1 : Math.min(1, u * 3));
+  }
+  for (const [key, a] of F0) if (!F1.has(key)) {
+    const c = G.corners[a.r];
+    drawFlit([a.p[0] + (c[0] - a.p[0]) * u, a.p[1] + (c[1] - a.p[1]) * u], a.pid, a.fi, 1 - u);
+  }
+  ctx.globalAlpha = 1;
+  if (dead) {
+    label("Deadlock", G.center[0], G.center[1] - 11, condensed(Math.max(16, Math.min(26, G.size * 0.06)), 600), WAIT);
+    label(`nothing has moved since cycle ${S.deadlockAt}`, G.center[0], G.center[1] + 14, `13px "IBM Plex Sans", system-ui, sans-serif`, "#c9d1dc");
+  } else if (k === K - 1 && f0.d === S.packets.length) {
+    label(`All ${S.packets.length} packets delivered`, G.center[0], G.center[1], condensed(Math.max(15, Math.min(22, G.size * 0.05)), 600), "#69db7c");
+  }
+  S._pick = pick;
+}
+
+// ---------- frame loop ----------
+function frame() {
+  const dpr = devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
+  if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
+    cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+  }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  S.type === "ring" ? drawRing(w, h) : drawFabric(w, h);
+}
+let last = performance.now();
+function tick(now) {
+  const dt = Math.min(0.1, (now - last) / 1000); last = now;
+  if (S) {
+    if (playing) {
+      t += dt * speed * (S.type === "ring" ? 2.2 : 1.3);
+      if (t > S.period) t = 0;
+      updateNow();
+    }
+    if (spin && S.type !== "ring") yaw += dt * 0.25;
+    frame();
+  }
+  requestAnimationFrame(tick);
+}
+
+// ---------- input ----------
+let drag = null, moved = 0;
+const pts = new Map();
+function nearest(e, radius) {
+  if (!S || !S._pick) return null;
+  const r = scope.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+  let best = null, bd = radius;
+  for (const p of S._pick) { const d = Math.hypot(p[0] - x, p[1] - y); if (d < bd) { bd = d; best = p; } }
+  return best;
+}
+function showTip(e, text) {
+  const tip = $("tip"), r = scope.getBoundingClientRect();
+  tip.textContent = text; tip.hidden = false;
+  const x = e.clientX - r.left + 12, y = e.clientY - r.top + 12;
+  tip.style.left = `${Math.max(6, Math.min(x, r.width - tip.offsetWidth - 6))}px`;
+  tip.style.top = `${Math.min(y, r.height - 30)}px`;
+}
+function hover(e) {
+  const p = nearest(e, coarse ? 22 : 12);
+  if (!p) { $("tip").hidden = true; return; }
+  if (S.type === "ring") {
+    const [src, dst] = S.packets[p[2]];
+    showTip(e, `packet ${p[2]}: chip ${src} → chip ${dst}, flit ${p[3] + 1} of ${S.plen}${p[3] === 0 ? " (head)" : ""}`);
+  } else showTip(e, S.nodes[p[2]][3]);
+}
+scope.addEventListener("pointerdown", (e) => {
+  if (S && S.type === "ring") { hover(e); return; }
+  scope.setPointerCapture(e.pointerId);
+  pts.set(e.pointerId, [e.clientX, e.clientY]);
+  drag = [e.clientX, e.clientY, yaw, pitch]; moved = 0;
+});
+scope.addEventListener("pointermove", (e) => {
+  if (!pts.has(e.pointerId)) { if (!coarse) hover(e); return; }
+  const prev = pts.get(e.pointerId);
+  if (pts.size === 2) {
+    const [a, b] = [...pts.values()], d0 = Math.hypot(a[0] - b[0], a[1] - b[1]);
+    pts.set(e.pointerId, [e.clientX, e.clientY]);
+    const [c, d] = [...pts.values()], d1 = Math.hypot(c[0] - d[0], c[1] - d[1]);
+    if (d0 > 0) zoom = Math.min(4, Math.max(0.4, zoom * d1 / d0));
+    moved += 10; return;
+  }
+  pts.set(e.pointerId, [e.clientX, e.clientY]);
+  moved += Math.abs(e.clientX - prev[0]) + Math.abs(e.clientY - prev[1]);
+  yaw = drag[2] + (e.clientX - drag[0]) * 0.008;
+  pitch = Math.max(-1.45, Math.min(1.45, drag[3] + (e.clientY - drag[1]) * 0.008));
+  $("tip").hidden = true;
+});
+scope.addEventListener("pointerup", (e) => {
+  if (!pts.has(e.pointerId)) return;
+  pts.delete(e.pointerId);
+  if (moved < 6 && S.type !== "ring") {
+    const p = nearest(e, coarse ? 22 : 12);
+    if (p) { follow = follow === p[2] ? null : p[2]; updateFollow(); }
+  }
+});
+scope.addEventListener("pointercancel", (e) => pts.delete(e.pointerId));
+scope.addEventListener("pointerleave", () => { if (!coarse) $("tip").hidden = true; });
+scope.addEventListener("wheel", (e) => {
+  if (!S || S.type === "ring") return;
+  e.preventDefault();
+  zoom = Math.min(4, Math.max(0.4, zoom * Math.exp(-e.deltaY * 0.0015)));
+}, { passive: false });
+
+$("play").onclick = () => { playing = !playing; $("play").textContent = playing ? "Pause" : "Play"; };
+$("speed").onchange = (e) => { speed = +e.target.value; };
+$("scrub").oninput = (e) => { t = +e.target.value; updateNow(); };
+$("prev").onclick = () => {
+  const k = segAt(t), s = S.segments;
+  t = k > 0 && t - s[k][0] < 0.3 ? s[k - 1][0] : s[Math.max(0, k)][0]; updateNow();
+};
+$("next").onclick = () => { const k = segAt(t); if (k + 1 < S.segments.length) { t = S.segments[k + 1][0]; updateNow(); } };
+document.addEventListener("keydown", (e) => {
+  if (["INPUT", "SELECT", "TEXTAREA"].includes(e.target.tagName)) return;
+  if (e.key === " ") { e.preventDefault(); $("play").click(); }
+  if (e.key === "ArrowRight") $("next").click();
+  if (e.key === "ArrowLeft") $("prev").click();
+});
+
+for (const [name, items] of GROUPS) {
+  const g = document.createElement("div"); g.className = "group";
+  g.innerHTML = `<span>${name}</span><div class="tabs"></div>`;
+  for (const [id, text] of items) {
+    const b = document.createElement("button");
+    b.textContent = text; b.dataset.name = id; b.onclick = () => select(id);
+    g.lastChild.append(b);
+  }
+  $("picker").append(g);
+}
+const start = ALL.includes(location.hash.slice(1)) ? location.hash.slice(1) : ALL[0];
+const at = parseFloat(new URLSearchParams(location.search).get("t")); // fixed time, for screenshots
+if (!isNaN(at)) playing = false;
+$("play").textContent = playing ? "Pause" : "Play";
+select(start).then(() => { if (!isNaN(at)) { t = at; updateNow(); } requestAnimationFrame(tick); });
+</script>
