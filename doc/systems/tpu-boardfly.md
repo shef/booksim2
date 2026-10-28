@@ -5,6 +5,12 @@ TPU 8i (announced 2026) is Google's first inference-specific TPU and drops the
 latency: fully connected trays, fully connected groups of 8 trays over copper,
 and groups joined through OCSes.
 
+![Hierarchical all-reduce on a 4-group Boardfly slice](../media/boardfly-allreduce.svg)
+
+*Hierarchical all-reduce on a 4-group slice: tray, group, then global stage
+(schematic timing). Interactive 3D version, with all-to-all:
+[doc/viewer](../viewer/).*
+
 ## Sources
 
 | Source | Date | What it gives |

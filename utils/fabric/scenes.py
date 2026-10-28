@@ -13,7 +13,7 @@ not to scale.
   boardfly-allreduce  4-group Boardfly, tray -> group -> global stages
   boardfly-alltoall   4-group Boardfly, minimal paths
   ring-deadlock       4-chip ring, one virtual channel: a burst deadlocks
-  ring-bigbuffer      the same with buffers twice as deep: still deadlocks
+  ring-bigbuffer      the same with buffers twice as deep: deadlocks later
   ring-dateline       two virtual channels with a dateline: all delivered
 
 Scene format: {title, intro, kinds: {k: {name, color, dash}}, nodes:

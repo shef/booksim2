@@ -5,6 +5,12 @@ through optical circuit switches (OCS). Ironwood (2025) is the current
 generation; TPU 8t (announced 2026) keeps the same construction at twice the
 link rate. Only Ironwood is modelled here; 8t is assumed to share its layout.
 
+![All-reduce on one 4x4x4 cube: three concurrent bidirectional rings](../media/torus-allreduce.svg)
+
+*All-reduce on one cube, three rings at once (schematic timing). Interactive
+3D version, with all-to-all and virtual-channel scenes:
+[doc/viewer](../viewer/).*
+
 ## Sources
 
 | Source | Date | What it gives |

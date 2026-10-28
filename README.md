@@ -28,7 +28,11 @@ upstream example configs reproduce their recorded statistics exactly.
   against analytical values), run by GitHub Actions on every push.
 
 Exporters for TPU torus and Boardfly slices and for collective traffic:
-[utils/fabric](utils/fabric).
+[utils/fabric](utils/fabric). A [collectives viewer](doc/viewer) shows
+all-reduce and all-to-all moving through those fabrics in 3D, and how
+virtual channels prevent deadlock.
+
+![All-reduce on a 4x4x4 torus](doc/media/torus-allreduce.svg)
 
 Documentation: [doc/README.md](doc/README.md): the simulator (file formats,
 routing functions, options), one page per modelled system with its sources

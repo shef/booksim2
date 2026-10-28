@@ -34,6 +34,11 @@ python3 cdgcheck.py /tmp/t/topo.txt /tmp/t/paths.txt
 # All-reduce on the torus, six terminals per chip
 python3 collectives.py torus-rings /tmp/ar.txt --twisted
 #   ... traffic=matrix traffic_matrix_file=/tmp/ar.txt fabric_terminals=6
+
+# Viewer scenes and the animated SVGs on the system pages (doc/viewer/README.md)
+python3 scenes.py ../../doc/viewer/data
+python3 animate.py torus ../../doc/media/torus-allreduce.svg
+python3 animate.py boardfly ../../doc/media/boardfly-allreduce.svg
 ```
 
 `--ocs-distance` sets the TPU-to-OCS fiber length (default 100 m, a 1,080 ns
