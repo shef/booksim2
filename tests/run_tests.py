@@ -703,6 +703,32 @@ def utils_viewer_scenes():
                 assert frozenset((a, b)) in links, (name, a, b)
 
 
+def utils_moe_messages():
+    """msg-moe: every source sends S except the share for its own chip's
+    experts (total S x (N - 1) when popularity is uniform); --combine
+    doubles it with return messages that wait for their dispatch; skewed
+    popularity makes the all-to-all slower on a Clos (hot chips)."""
+    n, S = 8, 1_600_000
+    out = os.path.join(TMP, "moe.txt")
+    exporter("collectives.py", "msg-moe", out, "--bytes", str(S), "--endpoints", str(n))
+    total = sum(int(l.split()[3]) for l in open(out) if not l.startswith("#"))
+    assert abs(total - S * (n - 1)) / (S * n) < 0.001, total
+    exporter("collectives.py", "msg-moe", out, "--bytes", str(S), "--endpoints", str(n),
+             "--combine", "--skew", "1")
+    lines = [l.split() for l in open(out) if not l.startswith("#")]
+    comb = [l for l in lines if "tag=moe.combine" in l]
+    assert len(comb) == len(lines) // 2 and all(any(x.startswith("after=") for x in l) for l in comb)
+    d = os.path.join(TMP, "clos_moe")
+    exporter("clos.py", d, "--chips", str(n), "--switches", "4")
+    big = ["num_vcs=4", "vc_buf_size=512", "fabric_eject_any=1"]
+    t = {}
+    for z in ("0", "2"):
+        exporter("collectives.py", "msg-moe", f"{d}/msgs.txt", "--bytes", "400000",
+                 "--endpoints", str(n), "--experts-per-chip", "4", "--skew", z)
+        t[z], _, _ = _messages(d, big)
+    assert t["2"] > 2 * t["0"], t
+
+
 TESTS = [make_upstream_test(c) for c in UPSTREAM] + [
     fabric_latency_per_hop, fabric_dor_torus_hops, fabric_src_torus_fixture,
     fabric_switched_terminals, fabric_groupshift, fabric_matrix_errors, fabric_port_gap_error,
@@ -714,6 +740,7 @@ TESTS = [make_upstream_test(c) for c in UPSTREAM] + [
     fabric_link_util, fabric_messages_stream,
     fabric_compute_terminals, fabric_eject_any, fabric_multipath,
     fabric_multicast_relay, utils_viewer_scenes,
+    utils_moe_messages,
 ] + [make_smoke_test(r, x) for r, x in (("lduato", []), ("duato", []), ("updown", []),
                                         ("esc", []), ("ugal", ["ugal_threshold=128"]))]
 

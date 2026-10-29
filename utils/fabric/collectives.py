@@ -47,6 +47,10 @@ all-to-all where each chip sends S / N to every other chip.
                      copy from the root), relay (through compute-terminal
                      engines, --engines, as switch multicast) or tree
                      (endpoints relay down a binary tree as data arrives)
+  msg-moe            MoE expert-parallel all-to-all: each endpoint sends S to
+                     experts spread over the endpoints (--experts-per-chip),
+                     weighted by Zipf popularity (--skew; 0 = uniform);
+                     --combine adds the return trip
   msg-tree           tree all-reduce over the endpoints: the whole buffer is
                      reduced up a binary tree and broadcast back down, chunk
                      by chunk (use --chunks to pipeline); --double splits it
@@ -66,6 +70,8 @@ usage: collectives.py torus-rings OUT [--dims X Y Z] [--twisted]
        collectives.py msg-innet OUT --bytes S --endpoints N --engines R,R,... [COMMON]
        collectives.py msg-bcast OUT --bytes S --endpoints N [--mode unicast|relay|tree]
                       [--engines R,R,...]
+       collectives.py msg-moe OUT --bytes S --endpoints N [--experts-per-chip E]
+                      [--skew Z] [--combine] [--seed K]
        collectives.py msg-tree OUT --bytes S (--endpoints N | --topo TOPO_FILE)
                       [--double] [COMMON]
          COMMON: [--chunks C] [--reduce-gbps R]
@@ -394,6 +400,32 @@ def msg_bcast(sch, endpoints, nbytes, mode="unicast", engines=(), root=None):
                              stream=[got[p]] if p in got else [])
 
 
+def msg_moe(sch, endpoints, nbytes, experts_per_chip=1, skew=0.0, combine=False, seed=1):
+    """MoE expert-parallel all-to-all: each endpoint dispatches nbytes of
+    tokens to experts spread over the endpoints (experts_per_chip each,
+    shuffled), in proportion to expert popularity ~ 1 / rank^skew (Zipf;
+    skew 0 is uniform). Tokens for experts on the sender's own chip stay
+    local. With combine, results return along the reverse pairs after the
+    dispatch each depends on."""
+    rng = random.Random(seed)
+    n = len(endpoints)
+    experts = [c for c in endpoints for _ in range(experts_per_chip)]
+    rng.shuffle(experts)
+    weight = [1.0 / (r + 1) ** skew for r in range(len(experts))]
+    load = {c: 0.0 for c in endpoints}
+    for c, w in zip(experts, weight):
+        load[c] += w
+    total = sum(load.values())
+    for s in endpoints:
+        for d in endpoints:
+            b = nbytes * load[d] / total
+            if s == d or b < 1:
+                continue
+            m = sch.add(s, d, b, tag="moe.dispatch")
+            if combine:
+                sch.add(d, s, b, deps=[m], tag="moe.combine")
+
+
 def endpoints_of(topo):
     """Routers with terminals in a topology file (all, unless `t R 0`)."""
     with open(topo) as f:
@@ -421,21 +453,25 @@ def main():
     r.add_argument("--k", type=int, default=3)
     m = {}
     for name in ("msg-alltoall", "msg-torus", "msg-boardfly", "msg-rings", "msg-tree",
-                 "msg-ring", "msg-innet", "msg-bcast"):
+                 "msg-ring", "msg-innet", "msg-bcast", "msg-moe"):
         m[name] = sub.add_parser(name)
         m[name].add_argument("out")
         if name == "msg-rings":
             m[name].add_argument("topo")
             m[name].add_argument("--k", type=int, default=3)
         m[name].add_argument("--bytes", type=float, required=True)
-        if name not in ("msg-alltoall", "msg-bcast"):
+        if name not in ("msg-alltoall", "msg-bcast", "msg-moe"):
             m[name].add_argument("--chunks", type=int, default=1)
             m[name].add_argument("--reduce-gbps", type=float, default=0)
-    for name in ("msg-alltoall", "msg-tree", "msg-ring", "msg-innet", "msg-bcast"):
+    for name in ("msg-alltoall", "msg-tree", "msg-ring", "msg-innet", "msg-bcast", "msg-moe"):
         m[name].add_argument("--endpoints", type=int)
         m[name].add_argument("--topo")
     m["msg-innet"].add_argument("--engines", required=True,
                                 help="routers whose compute terminals reduce, e.g. 8,9,10,11")
+    m["msg-moe"].add_argument("--experts-per-chip", type=int, default=1)
+    m["msg-moe"].add_argument("--skew", type=float, default=0.0)
+    m["msg-moe"].add_argument("--combine", action="store_true")
+    m["msg-moe"].add_argument("--seed", type=int, default=1)
     m["msg-bcast"].add_argument("--mode", choices=["unicast", "relay", "tree"], default="unicast")
     m["msg-bcast"].add_argument("--engines", default="",
                                 help="relay mode: routers whose compute terminals replicate")
@@ -456,6 +492,10 @@ def main():
             eps = endpoints_of(a.topo) if a.topo else list(range(a.endpoints))
             engines = [f"c{r}" for r in a.engines.split(",")]
             sch = chunked(msg_innet, a.chunks, a.bytes, eps, engines, reduce_gbps=a.reduce_gbps)
+        elif a.cmd == "msg-moe":
+            eps = endpoints_of(a.topo) if a.topo else list(range(a.endpoints))
+            sch = Schedule()
+            msg_moe(sch, eps, a.bytes, a.experts_per_chip, a.skew, a.combine, a.seed)
         elif a.cmd == "msg-bcast":
             eps = endpoints_of(a.topo) if a.topo else list(range(a.endpoints))
             engines = [f"c{r}" for r in a.engines.split(",") if r]
