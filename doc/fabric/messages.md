@@ -231,17 +231,16 @@ step 3) so per-step spans show when a run reaches its steady state.
 flit per cycle, `speculative = 1`, `fabric_eject_any = 1` (completion in
 cycles):
 
-| Collective | Cycles | Note |
-|---|---|---|
-| in-network all-reduce (`msg-innet`) | 2,378 | each chip sends S once over its 4 links: ideal about 2,000 |
-| all-to-all, 1.4 MB sent per chip | 2,388 | ideal about 1,750 to 2,000 |
-| ring all-reduce (`msg-ring`, 4 chunks) | 9,359 | ring neighbours route through only 2 of the 4 switches (one path per pair); 7,256 without `fabric_eject_any`, not yet explained |
-| double binary tree (16 chunks) | 19,117 | inner chips carry the whole buffer on few links |
+| Collective | One path per pair | `--multipath` | Note |
+|---|---|---|---|
+| one message, chip to chip | 8,130 | 2,358 | 8,000 flits over one link, or four |
+| in-network all-reduce (`msg-innet`) | 2,378 | 2,378 | each chip sends S once over its 4 links: ideal about 2,000 |
+| all-to-all, 1.4 MB sent per chip | 2,388 | 2,860 | the fixed (i + j) mod K assignment is already balanced; spreading adds downlink collisions |
+| ring all-reduce (`msg-ring`, 4 chunks) | 9,359 | 5,789 | one path per pair puts ring neighbours on 2 of the 4 switches; 7,256 single-path without `fabric_eject_any`, not yet explained |
+| double binary tree (16 chunks) | 19,117 | 11,074 | inner chips carry the whole buffer |
 
 Without `fabric_eject_any` the all-to-all took 7,084 cycles: incast into
-each chip used only part of its four ejection ports. A switched fabric also
-needs multipath routing (packets spread over switches) for rings to use all
-links; see ROADMAP.md.
+each chip used only part of its four ejection ports.
 
 ## In-network and near-network compute (design)
 

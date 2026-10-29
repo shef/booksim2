@@ -68,7 +68,7 @@ std::vector<std::vector<double> > gPortRate;  // [router][link port] rate
 std::vector<std::vector<int> > gPortKind;  // [router][link port] kind
 std::vector<unsigned long long> gArrDown;  // [router] bit p: arriving on p was a down hop
 std::vector<Entry> gTable;                 // [router * R + dest router]
-std::vector<std::vector<Hop> > gPaths;     // [src router * R + dest router]
+std::vector<std::vector<std::vector<Hop> > > gPaths;  // [src router * R + dest router][alternative]
 int gEscLayers = 0;
 
 // Groups (components of the non-global links) and router hop distances.
@@ -263,7 +263,12 @@ void src_fabric(const Router *r, const Flit *f, int in_channel, OutputSet *outpu
     return;
   }
   if (Eject(r, f, outputs)) return;
-  const std::vector<Hop> &path = gPaths[(size_t)SrcRouter(f) * gRouters + DestRouter(f)];
+  // Several paths for a pair: each packet takes alternative pid mod count,
+  // so a flow spreads over them and a packet's flits stay together.
+  const std::vector<std::vector<Hop> > &alts =
+      gPaths[(size_t)SrcRouter(f) * gRouters + DestRouter(f)];
+  assert(!alts.empty());
+  const std::vector<Hop> &path = alts[f->pid % alts.size()];
   assert(f->hops < (int)path.size());
   const Hop &h = path[f->hops];
   assert(h.vc < gNumVCs);
@@ -587,7 +592,8 @@ void Fabric::_BuildNet(const Configuration &config) {
   gUgalThreshold = config.GetInt("ugal_threshold");
   gEscLayers = config.GetInt("fabric_esc_layers");
 
-  // Source routes: "SRC DEST N (PORT VC) x N" per line, routers and link ports.
+  // Source routes: "SRC DEST N (PORT VC) x N" per line, routers and link ports;
+  // repeated lines for a pair are alternatives (multipath).
   std::string path_file = config.GetStr("fabric_path_file");
   if (!path_file.empty()) {
     std::ifstream pf(path_file.c_str());
@@ -595,12 +601,12 @@ void Fabric::_BuildNet(const Configuration &config) {
       std::cerr << "fabric: cannot open fabric_path_file " << path_file << std::endl;
       exit(-1);
     }
-    gPaths.assign((size_t)_size * _size, std::vector<Hop>());
+    gPaths.assign((size_t)_size * _size, std::vector<std::vector<Hop> >());
     int src, dst, n;
     while (pf >> src >> dst >> n) {
-      std::vector<Hop> &path = gPaths[(size_t)src * _size + dst];
-      path.resize(n);
-      for (int i = 0; i < n; ++i) pf >> path[i].port >> path[i].vc;
+      std::vector<std::vector<Hop> > &alts = gPaths[(size_t)src * _size + dst];
+      alts.push_back(std::vector<Hop>(n));
+      for (int i = 0; i < n; ++i) pf >> alts.back()[i].port >> alts.back()[i].vc;
     }
   }
 

@@ -85,7 +85,11 @@ One line per (source router, destination router):
 SRC DEST N  PORT VC  PORT VC ...
 ```
 
-with the link port and VC of each of the `N` hops.
+with the link port and VC of each of the `N` hops. Several lines for the
+same pair are alternative paths: each packet takes alternative `packet id
+mod count`, so one flow spreads over all of them while a packet's flits stay
+on one path (multipath; every alternative must keep the routes deadlock-free,
+which `utils/fabric/cdgcheck.py` checks across all lines).
 
 ## Traffic matrix (`traffic_matrix_file`)
 

@@ -652,6 +652,20 @@ def fabric_eject_any():
     assert anyp < 0.6 * fixed, (fixed, anyp)
 
 
+def fabric_multipath():
+    """Repeated path lines for a pair are alternatives, chosen per packet:
+    one message between two chips of a 4-switch Clos uses all four switches
+    with --multipath, about four times faster than its single path."""
+    big = ["num_vcs=4", "vc_buf_size=512", "fabric_eject_any=1"]
+    times = {}
+    for mp in ("", "--multipath"):
+        d = os.path.join(TMP, f"clos_mp{mp}")
+        exporter("clos.py", d, "--chips", "4", "--switches", "4", *([mp] if mp else []))
+        _write(d, msgs="0 0 1 1600000\n")
+        times[mp], _, _ = _messages(d, big)
+    assert times["--multipath"] < 0.35 * times[""], times
+
+
 TESTS = [make_upstream_test(c) for c in UPSTREAM] + [
     fabric_latency_per_hop, fabric_dor_torus_hops, fabric_src_torus_fixture,
     fabric_switched_terminals, fabric_groupshift, fabric_matrix_errors, fabric_port_gap_error,
@@ -661,7 +675,7 @@ TESTS = [make_upstream_test(c) for c in UPSTREAM] + [
     utils_collective_messages, fabric_messages_ring_allreduce,
     fabric_link_rates, fabric_stats_json, utils_harness,
     fabric_link_util, fabric_messages_stream,
-    fabric_compute_terminals, fabric_eject_any,
+    fabric_compute_terminals, fabric_eject_any, fabric_multipath,
 ] + [make_smoke_test(r, x) for r, x in (("lduato", []), ("duato", []), ("updown", []),
                                         ("esc", []), ("ugal", ["ugal_threshold=128"]))]
 

@@ -95,7 +95,10 @@ ignores `injection_rate`, so it always runs overloaded.
 - [ ] Bubble flow control (a candidate for 2-VC deadlock freedom on ICI).
 - [ ] Link-level retry and bit errors.
 - [ ] Failures and OCS reconfiguration during a run.
-- [ ] Randomized or weighted multipath routing (NSDI 2024 future work).
+- [x] Multipath `src` routes: repeated path lines are alternatives chosen
+      per packet (formats.md; test `fabric_multipath`; `clos.py
+      --multipath`). Still to do: weighted and randomized choice (NSDI 2024
+      future work), and multipath fault routes for the torus.
 - [x] Per-link utilization output: `link_util_file` (options.md; test
       `fabric_link_util`). Next: feed it to the viewer.
 

@@ -11,7 +11,9 @@ engine, `cR` in message files; doc/fabric/messages.md).
 
 Ports: chip i's port k+1 links to switch k's port i+1.
 Routes: chip i to chip j through switch (i + j) mod K, so all-to-all spreads
-evenly; chips to and from a switch directly. VCs: packets to chip j use VC
+evenly, or with --multipath through every switch (one path line per switch;
+each packet takes one, so a single flow uses all K links); chips to and from
+a switch directly. VCs: packets to chip j use VC
 j mod --vcs on both hops, so a switch input queues packets by destination
 (approximating the virtual output queues real switches use) instead of one
 FIFO where a packet waiting for a busy output blocks those behind it. Any VC
@@ -19,7 +21,7 @@ assignment is deadlock-free here: a two-hop path through a switch cannot
 form a channel dependency cycle. Run with num_vcs >= --vcs.
 
 usage: clos.py OUTDIR [--chips N] [--switches K] [--terminals T] [--vcs V]
-               [--latency CYCLES] [--rate R] [--compute T]
+               [--multipath] [--latency CYCLES] [--rate R] [--compute T]
 """
 
 import argparse
@@ -28,7 +30,7 @@ import os
 import fabricio
 
 
-def build(n, k, latency, rate, vcs=1):
+def build(n, k, latency, rate, vcs=1, multipath=False):
     links = []
     for i in range(n):
         for s in range(k):
@@ -37,8 +39,8 @@ def build(n, k, latency, rate, vcs=1):
     for i in range(n):
         for j in range(n):
             if i != j:
-                s = (i + j) % k
-                routes.append((i, j, [(s + 1, j % vcs), (j + 1, j % vcs)]))
+                for s in (range(k) if multipath else [(i + j) % k]):
+                    routes.append((i, j, [(s + 1, j % vcs), (j + 1, j % vcs)]))
         for s in range(k):
             routes.append((i, n + s, [(s + 1, 0)]))
             routes.append((n + s, i, [(i + 1, i % vcs)]))
@@ -55,9 +57,10 @@ def main():
     ap.add_argument("--rate", type=float, default=1.0, help="flits per cycle per link")
     ap.add_argument("--compute", type=int, default=0, help="compute terminals per switch")
     ap.add_argument("--vcs", type=int, default=4, help="VCs routes spread destinations over")
+    ap.add_argument("--multipath", action="store_true", help="a path through every switch per pair")
     a = ap.parse_args()
     n, k = a.chips, a.switches
-    links, routes = build(n, k, a.latency, a.rate, a.vcs)
+    links, routes = build(n, k, a.latency, a.rate, a.vcs, a.multipath)
     terms = {r: a.terminals or k for r in range(n)}
     terms.update({n + s: 0 for s in range(k)})
     os.makedirs(a.outdir, exist_ok=True)
