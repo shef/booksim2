@@ -126,4 +126,50 @@ why fault-free BookSim sits slightly above the bound.
 - A fixed-bytes BookSim measurement (each pair sends the same amount and
   the run is timed) would test the bound directly. BookSim's batch mode
   ignores the injection rate and so runs every case deep in overload, where
-  this torus model collapses; pacing it is future work.
+  this torus model collapses; pacing it is future work. (Done: see the
+  follow-up below.)
+
+## Follow-up (2026-10-29): fixed-bytes all-to-all
+
+The message engine ([messages.md](../fabric/messages.md)) times a real
+all-to-all: every pair sends 160 KB, and throughput is the bytes each chip
+sends divided by the completion time. Same routes, buffers and terminals as
+above; `message_window = 512` packets in flight per chip.
+
+```
+python3 doc/studies/2026-10-nsdi-table2/run.py /tmp/nsdi a2a   # about 1.5 h on 16 cores
+```
+
+Raw results: [a2a.csv](2026-10-nsdi-table2/a2a.csv) (windows 512 and 1,024).
+
+| Slice | Routes | Bound | Fixed bytes | Of bound | Kept (fixed bytes) | Kept (bound) | NSDI kept |
+|---|---|---|---|---|---|---|---|
+| 4x4x4 | fault-free, parity | 1.969 | 1.731 | 88% | | | |
+| | fault-free, balanced | 1.969 | 1.736 | 88% | | | |
+| | 1 OCS down (X, Y, Z) | 1.853 | 1.622-1.654 | 88-89% | **94.6%** | 94.1% | 92.2% |
+| 4x4x8 twisted | fault-free, parity | 1.221 | 1.188 | 97% | | | |
+| | fault-free, balanced | 1.693 | 1.623 | 96% | | | |
+| | 1 OCS down (X, Y, Z) | 1.693 | 1.616-1.624 | 96% | **99.9%** | 100.0% | 101.7% |
+| 4x8x8 twisted | fault-free, parity | 1.250 | 1.229 | 98% | | | |
+| | fault-free, balanced | 1.335 | 1.305 | 98% | | | |
+| | 1 OCS down (X / Y, Z) | 1.364 / 1.371 | 1.329-1.341 | 97-98% | **102.2%** | 102.5% | 98.8% |
+
+- **The bound holds under real timing.** Every case reaches 88-98% of its
+  busiest-link bound, and the kept fractions match the bound's to within
+  half a point; the overshoot of the uniform-traffic runs (the * rows
+  above) is gone. The conclusions above stand: about a sixteenth lost on
+  4x4x4, nothing on the twisted slices, and the twisted "gain" comes from
+  the baseline.
+- The 4x4x4 runs sit lowest (88%): the slice is small, so the fixed
+  latency (about 900 ns to first byte, and the tail) is a larger share of
+  a 29 µs run. Fault-free ratios between shapes therefore come out higher
+  than the bound's (0.93 and 0.75 against 0.86 and 0.68; NSDI 0.82 and
+  0.72); per-slice ratios to the bound are the better comparison.
+- **The window matters.** Without one, every chip injects all its packets
+  at once and the routers collapse: the same runs took 1.5 to 100 times
+  longer (4x4x8 twisted with an X fault: 3.6 million cycles against
+  62,572). 512 and 1,024 packets give the same times within 2%, except
+  4x4x8 twisted with parity routes, whose hot links collapse again at
+  1,024 (316,478 cycles); 256 is too small (window-limited, up to 58% slower).
+  A window that covers the bandwidth-delay product without flooding the
+  busiest link's buffers is the rule; see messages.md, Window.

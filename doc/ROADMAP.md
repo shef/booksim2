@@ -70,8 +70,9 @@ ignores `injection_rate`, so it always runs overloaded.
       routers), only if results fall between the two bounds above and the
       gap matters: router changes for multi-output allocation and buffer
       release, a multicast route format, and multicast deadlock freedom.
-- [ ] Rerun the NSDI Table 2 comparison as a fixed-bytes all-to-all and
-      compare with the busiest-link bound.
+- [x] Rerun the NSDI Table 2 comparison as a fixed-bytes all-to-all and
+      compare with the busiest-link bound (study follow-up: 88-98% of the
+      bound in every case; kept fractions within half a point of it).
 - [ ] Chakra execution-trace import (MLCommons; used by ASTRA-sim).
 
 ## 2. Measurement rigor

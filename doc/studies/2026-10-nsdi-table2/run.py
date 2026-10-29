@@ -9,9 +9,13 @@ then:
           most paths on any link, in links per chip (one path per pair,
           equal bytes per pair, as NSDI's ILP assumes);
   sweep   BookSim uniform traffic from 6 terminals per chip at offered loads
-          around each bound; saturation = the highest accepted rate.
+          around each bound; saturation = the highest accepted rate;
+  a2a     (follow-up, 2026-10-29) fixed-bytes all-to-all with the message
+          engine: every pair sends 160 KB, the run is timed, throughput =
+          bytes per chip / time; message_window 512 and 1024 packets.
 
-usage: run.py WORKDIR [bounds|sweep|all]    (writes WORKDIR/bounds.csv, sweep.csv)
+usage: run.py WORKDIR [bounds|sweep|a2a|all]
+       (writes WORKDIR/bounds.csv, sweep.csv, a2a.csv; all = bounds + sweep)
 """
 import collections, concurrent.futures as cf, csv, os, re, subprocess, sys
 
@@ -26,6 +30,9 @@ CASES = {"none": [], "bal": ["--balance"],
          **{f: ["--ocs-fault", f, "--scenario", "one", "--vcs", "3"] for f in "xyz"}}
 FRACS = [0.55, 0.65, 0.75, 0.82, 0.88, 0.94, 1.0, 1.08]
 PACKET = 8  # flits (booksim.cfg)
+PAIR = 160000  # bytes per pair, a2a
+WINDOWS = [512, 1024]
+FLIT = 200  # bytes
 
 
 def export(work, shape, case):
@@ -63,6 +70,22 @@ def simulate(d, offered):
     return float(acc[-1]) * 6 if acc else None, "Time taken" in out
 
 
+def fixed_bytes(d, chips, window):
+    msgs = os.path.join(d, "a2a.txt")
+    if not os.path.exists(msgs):
+        subprocess.run([sys.executable, os.path.join(ROOT, "utils/fabric/collectives.py"), "msg-alltoall",
+                        msgs, "--bytes", str(PAIR * chips), "--endpoints", str(chips)],
+                       check=True, capture_output=True)
+    cmd = [BOOKSIM, os.path.join(HERE, "booksim.cfg"), f"network_file={d}/topo.txt",
+           f"fabric_path_file={d}/paths.txt", "routing_function=src", "num_vcs=3",
+           "buffer_policy=shared", "buf_size=5242", "private_buf_size=16", "internal_speedup=2.0",
+           "fabric_terminals=6", "speculative=1", "sim_type=messages", f"message_file={msgs}",
+           f"message_window={window}"]
+    out = subprocess.run(cmd, capture_output=True, text=True).stdout
+    m = re.search(r"Message completion time = (\d+)", out)
+    return int(m.group(1)) if m else None
+
+
 def main():
     work, what = sys.argv[1], (sys.argv[2] if len(sys.argv) > 2 else "all")
     os.makedirs(work, exist_ok=True)
@@ -78,6 +101,22 @@ def main():
             bounds[(s, c)] = b
             w.writerow([s, c, n, m, f"{b:.4f}"])
     if what == "bounds":
+        return
+    if what == "a2a":
+        runs = [(s, c, w) for s, c in jobs for w in WINDOWS]
+        chips = {k: bound(d)[0] for k, d in dirs.items()}
+        with open(os.path.join(work, "a2a.csv"), "w", newline="") as f, cf.ProcessPoolExecutor() as ex:
+            w = csv.writer(f)
+            w.writerow(["shape", "routes", "window", "cycles", "links_per_chip", "fraction_of_bound"])
+            futs = {ex.submit(fixed_bytes, dirs[(s, c)], chips[(s, c)], win): (s, c, win)
+                    for s, c, win in runs}
+            for fu in cf.as_completed(futs):
+                s, c, win = futs[fu]
+                t = fu.result()
+                lpc = PAIR * (chips[(s, c)] - 1) / FLIT / t if t else None
+                w.writerow([s, c, win, t or "", f"{lpc:.4f}" if lpc else "",
+                            f"{lpc / bounds[(s, c)]:.3f}" if lpc else ""])
+                f.flush()
         return
     runs = [(s, c, round(bounds[(s, "bal")] * fr, 4)) for s, c in jobs for fr in FRACS]
     with open(os.path.join(work, "sweep.csv"), "w", newline="") as f, cf.ProcessPoolExecutor() as ex:
