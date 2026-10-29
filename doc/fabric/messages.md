@@ -50,10 +50,15 @@ messages.
   the unfinished messages and the channels their packets wait in: a
   deadlock, or a dependency that can never be met.
 
-Units: sizes are bytes and delays nanoseconds, so one message file serves
-any system; the configuration converts them with `flit_bytes` and
+Units: sizes are bytes and delays integer nanoseconds, so one message file
+serves any system; the configuration converts them with `flit_bytes` and
 `cycle_ns`, which belong to the system's calibration (for example 200 B and
-1 ns for the TPU 8 model).
+1 ns for the TPU 8 model, 2 ns for Ironwood). This follows the common split
+in other tools: workloads are described in bytes and absolute time (Chakra
+traces, ASTRA-sim's network configuration in ns and GB/s, ns-3 and htsim,
+NCCL measurements), while flits and cycles stay inside cycle-level
+simulators (BookSim, Garnet). Results are reported in bytes, ns and GB/s per
+endpoint so they compare directly with hardware measurements.
 
 ## Message file (`message_file`)
 
@@ -74,8 +79,46 @@ One message per line; `#` starts a comment.
 
 A global barrier is a message list's dependencies; collectives rarely need
 more than a handful per message (a ring step depends on one incoming
-message, a hierarchical stage on the few it reduces). A 1,024-chip
-all-to-all is about a million lines with no dependencies.
+message, a hierarchical stage on the few it reduces).
+
+### Size and format
+
+A line is 30-40 bytes:
+
+| Workload | Messages | Text | gzipped |
+|---|---|---|---|
+| all-to-all, 64 chips | 4,032 | 0.1 MB | small |
+| all-to-all, 1,024 chips | about 1.05 million | 30-35 MB | 5-8 MB |
+| ring all-reduce, 1,024-chip torus (3 bidirectional rings) | 150-200 thousand | 6-8 MB | about 1 MB |
+| the same in 8 chunks | about 1.5 million | about 60 MB | about 10 MB |
+| all-to-all, 9,216 chips | about 85 million | about 3 GB | too large |
+
+Reading tens of MB takes a second or two, far less than simulating it, and
+full pods are out of reach of packet-level simulation anyway (they go to a
+flow-level model), so size does not pick the format. Plain text does: it can
+be read, grepped and diffed, a test case can be written by hand, a stuck
+message from a stalled run can be looked up with `grep`, and generators are
+a few lines of Python. Compressed input (`.gz`) can be added if files grow.
+
+Alternatives considered:
+
+- JSON: two to three times larger for flat records, and BookSim has no
+  parser. It suits the results instead (small, structured, read by Python
+  and the viewer).
+- CBOR or another binary encoding: about half the raw size, but gzipped
+  text is smaller still, parsing speed does not matter here, and it costs
+  readability and a C++ dependency. If a binary format is ever needed (tens
+  of millions of messages), protobuf would be the one, to share Chakra's.
+- Chakra execution traces (MLCommons): a level above this file. A Chakra
+  trace is a per-rank graph of compute, collective and send/receive
+  operations; a simulator's system layer decides how each collective becomes
+  network messages, which is what this file holds. So Chakra is supported by
+  a Python converter into this format (send/receive nodes map one to one;
+  collective nodes go through the same generators), which keeps protobuf
+  and collective algorithms out of BookSim.
+
+The engine reads the file once into an in-memory list, so another reader
+can be added later without touching the rest.
 
 ## Configuration
 
