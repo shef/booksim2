@@ -8,6 +8,7 @@
 | `traffic = groupshift(G)` | every node of group `g` sends to a random node of group `g+1`, groups being blocks of `G` nodes |
 | `measure_reorder = 1` | reports packets that arrived behind a later packet of the same source-destination pair, and the resequencing delay an in-order receiver would add (only for runs that converge) |
 | `batch_paced = 1` | with `sim_type = batch`, packets are issued at `injection_rate` (upstream batch mode ignores it and injects as fast as it can, so every batch runs overloaded); the batch time is then a completion time below saturation. Destinations still follow `traffic`, so a uniform batch is not equal bytes per pair |
+| `sim_type = messages` | runs `message_file`, a list of messages with dependencies, and reports completion times; keys `flit_bytes` (200), `cycle_ns` (1.0), `message_stall_cycles` (1000000), `message_out_file`; use with `speculative = 1` ([messages.md](messages.md)) |
 
 ## Network keys
 

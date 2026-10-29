@@ -202,6 +202,13 @@ BookSimConfig::BookSimConfig( )
   _int_map["max_outstanding_requests"] = 0; // 0 = unlimited
   _int_map["batch_paced"] = 0; // 1 = batch packets follow injection_rate (fabric)
 
+  // sim_type = messages (doc/fabric/messages.md)
+  AddStrField("message_file", "");
+  AddStrField("message_out_file", "");
+  _int_map["flit_bytes"] = 200;
+  _float_map["cycle_ns"] = 1.0;
+  _int_map["message_stall_cycles"] = 1000000;
+
   // Use read/write request reply scheme
   _int_map["use_read_write"] = 0;
   AddStrField("use_read_write", ""); // workaraound to allow for vector specification

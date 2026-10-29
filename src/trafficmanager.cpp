@@ -40,6 +40,7 @@
 #include "booksim_config.hpp"
 #include "trafficmanager.hpp"
 #include "batchtrafficmanager.hpp"
+#include "messagetrafficmanager.hpp"
 #include "random_utils.hpp" 
 #include "vc.hpp"
 #include "packet_reply_info.hpp"
@@ -57,6 +58,8 @@ TrafficManager * TrafficManager::New(Configuration const & config,
         result = new TrafficManager(config, net);
     } else if(sim_type == "batch") {
         result = new BatchTrafficManager(config, net);
+    } else if(sim_type == "messages") {
+        result = new MessageTrafficManager(config, net);
     } else {
         cerr << "Unknown simulation type: " << sim_type << endl;
     } 
@@ -855,16 +858,26 @@ int TrafficManager::_IssuePacket( int source, int cl )
     return result;
 }
 
+int TrafficManager::_PacketSize( int source, int cl )
+{
+    return _GetNextPacketSize(cl);
+}
+
+int TrafficManager::_PacketDestination( int source, int cl )
+{
+    return _traffic_pattern[cl]->dest(source);
+}
+
 void TrafficManager::_GeneratePacket( int source, int stype, 
                                       int cl, int time )
 {
     assert(stype!=0);
 
     Flit::FlitType packet_type = Flit::ANY_TYPE;
-    int size = _GetNextPacketSize(cl); //input size 
+    int size = _PacketSize(source, cl); //input size 
     int pid = _cur_pid++;
     assert(_cur_pid);
-    int packet_destination = _traffic_pattern[cl]->dest(source);
+    int packet_destination = _PacketDestination(source, cl);
     bool record = false;
     bool watch = gWatchOut && (_packets_to_watch.count(pid) > 0);
     if(_use_read_write[cl]){

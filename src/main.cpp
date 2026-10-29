@@ -183,5 +183,5 @@ int main( int argc, char **argv )
   /*configure and run the simulator
    */
   bool result = Simulate( config );
-  return result ? -1 : 0;
+  return result ? 0 : 1;  // upstream returned -1 on success and 0 on failure
 }

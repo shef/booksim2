@@ -1,7 +1,16 @@
-# Message workloads (design)
+# Message workloads
 
-Status: design, not implemented. Tracked in [ROADMAP.md](../ROADMAP.md),
-section 1.
+Status: engine implemented (`sim_type = messages`; tests
+`fabric_messages_*`); collective generators not yet. Tracked in
+[ROADMAP.md](../ROADMAP.md), section 1.
+
+Use `speculative = 1` for message runs. BookSim's input-queued router by
+default allocates a VC and then the switch, one after the other, so
+back-to-back packets on one VC (every packet of a message follows the same
+source route) lose a cycle per packet: one message ran at 8/9 of link rate
+with 8-flit packets, and at half with 1-flit packets. Speculative switch
+allocation, as high-performance routers do, removes the gap. Open-loop
+traffic mixes VCs and inputs and mostly hides it.
 
 ## Why
 
@@ -141,6 +150,10 @@ can be added later without touching the rest.
 - Stalled runs exit with status 2 after listing what is stuck.
 
 ## Implementation
+
+Exit status: 0 when every message finished, 2 when a run stalled (the fork
+also fixes upstream BookSim's inverted status, which returned -1 on success
+and 0 on failure; it now returns 0 and 1).
 
 A `MessageTrafficManager` subclass, chosen by `sim_type = messages`, like
 the batch manager:

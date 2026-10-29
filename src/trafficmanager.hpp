@@ -270,6 +270,11 @@ protected:
   bool _PacketsOutstanding( ) const;
   
   virtual int  _IssuePacket( int source, int cl );
+  // Size and destination of the packet _GeneratePacket is creating (normal
+  // mode; read/write replies keep their own). The destination is asked
+  // after the packet id is assigned, so _cur_pid - 1 is that packet's id.
+  virtual int  _PacketSize( int source, int cl );
+  virtual int  _PacketDestination( int source, int cl );
   void _GeneratePacket( int source, int size, int cl, int time );
 
   virtual void _ClearStats( );

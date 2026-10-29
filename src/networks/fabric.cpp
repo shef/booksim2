@@ -377,6 +377,11 @@ void Fabric::_ComputeSize(const Configuration &config) {
   assert(_nodes > 0);
 }
 
+void FabricTerminals(std::vector<int> *first, std::vector<int> *count) {
+  *first = gFirstNode;
+  *count = gTerms;
+}
+
 void Fabric::_BuildNet(const Configuration &config) {
   struct End { int chan_out, chan_in, kind; };
   int routers;

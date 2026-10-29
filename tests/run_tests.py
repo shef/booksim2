@@ -346,11 +346,103 @@ def fabric_batch_paced():
     assert duration(0.01, 0) == duration(0.005, 0)
 
 
+def _write(d, **files):
+    os.makedirs(d, exist_ok=True)
+    for name, text in files.items():
+        with open(os.path.join(d, name + ".txt"), "w") as f:
+            f.write(text)
+    return d
+
+
+def _messages(d, extra=(), check=True):
+    """Run sim_type = messages on d/topo.txt, d/paths.txt, d/msgs.txt; return
+    (completion cycles, {id: (ready, first_inject, finish)}, output)."""
+    out_file = os.path.join(d, "out.txt")
+    p = subprocess.run([BOOKSIM, os.path.join(TMP, "base.cfg"), f"network_file={d}/topo.txt",
+                        f"fabric_path_file={d}/paths.txt", "routing_function=src",
+                        "sim_type=messages", f"message_file={d}/msgs.txt",
+                        f"message_out_file={out_file}", "packet_size=8", "speculative=1",
+                        *extra], capture_output=True, text=True, timeout=600)
+    out = p.stdout + p.stderr
+    if not check:
+        return p.returncode, out
+    assert p.returncode == 0, out[-2000:]
+    m = re.search(r"Message completion time = (\d+)", out)
+    assert m, out[-2000:]
+    per = {}
+    for line in open(out_file):
+        if not line.startswith("#"):
+            i, _, ready, first, fin = line.split()
+            per[int(i)] = (int(ready), int(first), int(fin))
+    return int(m.group(1)), per, out
+
+
+# A line of chips 0 - 1 - 2 at 10 cycles per hop.
+LINE_TOPO = "3\n0 1 1 1 0 10\n1 2 2 1 0 10\n"
+
+
+def fabric_messages_basic():
+    """One message takes zero-load latency plus one cycle per flit; two
+    messages over the same link take twice the serialization; a dependency
+    starts the next message after its delay."""
+    booksim([])  # writes base.cfg
+    d = _write(os.path.join(TMP, "msg_basic"), topo=LINE_TOPO,
+               paths="0 1 1 1 0\n1 0 1 1 0\n0 2 2 1 0 2 0\n2 0 2 1 0 1 0\n1 2 1 2 0\n2 1 1 1 0\n",
+               msgs="0 0 2 200\n")
+    lat, _, _ = _messages(d)
+    _write(d, msgs="0 0 2 160000\n")              # 800 flits
+    one, _, _ = _messages(d)
+    assert abs(one - (lat + 799)) <= 3, (lat, one)
+    _write(d, msgs="0 0 2 160000\n1 0 2 160000\n")
+    two, per, _ = _messages(d)
+    assert abs(two - (lat + 1599)) <= 4, (lat, two)
+    assert abs(per[0][2] - per[1][2]) < 20, per   # fair sharing: both finish together
+    _write(d, msgs="0 0 2 160000 tag=a\n1 2 0 160000 after=0 delay=500 tag=b\n")
+    chain, per, out = _messages(d)
+    assert per[1][0] == per[0][2] + 500, per
+    assert abs(chain - (2 * one + 500)) <= 4, (one, chain)
+    assert "Message tag b: 1 messages" in out
+
+
+def fabric_messages_endpoints():
+    """Endpoints are routers with terminals: a switch in the middle is not an
+    endpoint, a chip with 3 terminals sends to one with 1, and messages to a
+    switch are refused."""
+    d = _write(os.path.join(TMP, "msg_switch"),
+               topo="3\nt 0 3\nt 1 0\n0 1 1 1 0 10\n1 2 2 1 0 10\n",
+               paths="0 2 2 1 0 2 0\n2 0 2 1 0 1 0\n0 1 1 1 0\n1 0 1 1 0\n1 2 1 2 0\n2 1 1 1 0\n",
+               msgs="0 0 2 16000\n1 2 0 16000 after=0\n")
+    _, per, _ = _messages(d)
+    assert per[1][2] > per[0][2] > 0, per
+    _write(d, msgs="0 0 1 16000\n")
+    code, out = _messages(d, check=False)
+    assert code != 0 and "no terminals" in out, out[-500:]
+    _write(d, msgs="0 0 2 100\n1 2 0 100 after=7\n")
+    code, out = _messages(d, check=False)
+    assert code != 0 and "earlier message ids" in out, out[-500:]
+
+
+def fabric_messages_stall():
+    """Four chips on a one-way ring, each sending two hops ahead on one VC
+    with small buffers, deadlock; the run stops at the stall limit with exit
+    status 2 and names the stuck messages."""
+    d = _write(os.path.join(TMP, "msg_ring"),
+               topo="4\n" + "".join(f"{r} 1 {(r + 1) % 4} 2 0 10\n" for r in range(4)),
+               paths="".join(f"{s} {(s + k) % 4} {k} " + " ".join(["1 0"] * k) + "\n"
+                             for s in range(4) for k in (1, 2, 3)),
+               msgs="".join(f"{s} {s} {(s + 2) % 4} 40000\n" for s in range(4)))
+    code, out = _messages(d, ["num_vcs=1", "vc_buf_size=4", "message_stall_cycles=5000"],
+                          check=False)
+    assert code == 2 and "Message run stalled" in out, out[-1500:]
+    assert out.count("  message ") == 4, out[-1500:]
+
+
 TESTS = [make_upstream_test(c) for c in UPSTREAM] + [
     fabric_latency_per_hop, fabric_dor_torus_hops, fabric_src_torus_fixture,
     fabric_switched_terminals, fabric_groupshift, fabric_matrix_errors, fabric_port_gap_error,
     fabric_measure_reorder, utils_boardfly_collectives, utils_torus_fault_routes,
     utils_cdgcheck, utils_torus_twisted_hops, fabric_batch_paced,
+    fabric_messages_basic, fabric_messages_endpoints, fabric_messages_stall,
 ] + [make_smoke_test(r, x) for r, x in (("lduato", []), ("duato", []), ("updown", []),
                                         ("esc", []), ("ugal", ["ugal_threshold=128"]))]
 
