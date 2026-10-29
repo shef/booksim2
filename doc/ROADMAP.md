@@ -57,8 +57,10 @@ ignores `injection_rate`, so it always runs overloaded.
 - [x] Structured results: `stats_json = FILE` (options.md; test
       `fabric_stats_json`) with status, build commit, full configuration,
       traffic statistics and message results.
-- [ ] Run harness: seeds, confidence intervals, saturation from latency-load
-      curves, and flags for collapse and for runs that never settled.
+- [x] Run harness: `utils/fabric/harness.py` (`seeds`: mean, standard
+      deviation and 95% confidence interval of any stats_json metric over N
+      seeds; `sweep`: accepted rate and latency against offered load, the
+      saturation load and a collapse flag); test `utils_harness`.
 - [ ] Studies use the harness; every number in a study comes with its
       spread.
 

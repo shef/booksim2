@@ -542,6 +542,27 @@ def fabric_stats_json():
     assert code == 2 and r["run"]["status"] == "stalled" and r["messages"]["unfinished"] == 4, r
 
 
+def utils_harness():
+    """harness.py seeds reports a mean and confidence interval from
+    stats_json; sweep finds the saturation load of a small torus."""
+    import json
+    booksim([])  # writes base.cfg
+    d = os.path.join(FIX, "torus444")
+    common = [f"network_file={d}/topo.txt", f"fabric_path_file={d}/paths.txt",
+              "routing_function=src", "--booksim", BOOKSIM, "--jobs", "4"]
+    out = os.path.join(TMP, "seeds.json")
+    exporter("harness.py", "seeds", os.path.join(TMP, "base.cfg"), *common, "--n", "3",
+             "--metric", "traffic_class_0.packet_latency_avg", "--out", out)
+    r = json.load(open(out))["metrics"]["traffic_class_0.packet_latency_avg"]
+    assert r["n"] == 3 and r["mean"] > 0 and r["ci95"] >= 0, r
+    out = os.path.join(TMP, "sweep.json")
+    exporter("harness.py", "sweep", os.path.join(TMP, "base.cfg"), *common, "--n", "1",
+             "--loads", "0.05,0.2,0.9", "sim_type=throughput", "--out", out)
+    r = json.load(open(out))
+    assert r["saturation_load"] in (0.05, 0.2), r["saturation_load"]
+    assert r["rows"][0]["accepted"]["mean"] > 0.04, r["rows"][0]
+
+
 TESTS = [make_upstream_test(c) for c in UPSTREAM] + [
     fabric_latency_per_hop, fabric_dor_torus_hops, fabric_src_torus_fixture,
     fabric_switched_terminals, fabric_groupshift, fabric_matrix_errors, fabric_port_gap_error,
@@ -549,7 +570,7 @@ TESTS = [make_upstream_test(c) for c in UPSTREAM] + [
     utils_cdgcheck, utils_torus_twisted_hops, fabric_batch_paced,
     fabric_messages_basic, fabric_messages_endpoints, fabric_messages_stall,
     utils_collective_messages, fabric_messages_ring_allreduce,
-    fabric_link_rates, fabric_stats_json,
+    fabric_link_rates, fabric_stats_json, utils_harness,
 ] + [make_smoke_test(r, x) for r, x in (("lduato", []), ("duato", []), ("updown", []),
                                         ("esc", []), ("ugal", ["ugal_threshold=128"]))]
 

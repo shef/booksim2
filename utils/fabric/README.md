@@ -9,6 +9,7 @@ of each exporter and are documented on the system pages (doc/systems/).
 |---|---|---|
 | `boardfly.py` | TPU 8i slices with optional failures: topology, `lduato` tables, meta.json | [tpu-boardfly.md](../../doc/systems/tpu-boardfly.md) |
 | `torus.py` | TPU 3D torus slices, plain or twisted, optionally with one OCS failure: topology and `src` routes | [tpu-torus.md](../../doc/systems/tpu-torus.md) |
+| `harness.py` | runs a config over seeds (mean and 95% CI of any `stats_json` metric) or sweeps offered load (saturation, collapse flag) | |
 | `collectives.py` | collectives as traffic matrices (open loop) or message files (`msg-*`, timed to completion; doc/fabric/messages.md) | |
 | `cdgcheck.py` | checks a path file for channel dependency cycles (deadlock freedom of `src` routes) | [routing.md](../../doc/fabric/routing.md) |
 | `scenes.py` | scene files for the collectives viewer ([doc/viewer/](../../doc/viewer/)) | |
@@ -42,6 +43,10 @@ python3 collectives.py torus-rings /tmp/ar.txt --twisted
 python3 collectives.py msg-alltoall /tmp/a2a.txt --bytes 1e6 --endpoints 64
 python3 collectives.py msg-torus /tmp/ar.txt --bytes 6e6 --dims 4 4 4 --chunks 4
 #   ... sim_type=messages message_file=/tmp/a2a.txt speculative=1
+
+# Five seeds of a message run, with a confidence interval
+python3 harness.py seeds my.cfg sim_type=messages message_file=/tmp/a2a.txt --n 5 \
+    --metric messages.completion_ns
 
 # Viewer scenes and the animated SVGs on the system pages (doc/viewer/README.md)
 python3 scenes.py ../../doc/viewer/data
