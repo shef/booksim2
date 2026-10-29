@@ -12,8 +12,12 @@ steps, judged by completion time. Open-loop measurement misleads under
 unequal per-pair load (see the NSDI Table 2 study's caveats), and batch mode
 ignores `injection_rate`, so it always runs overloaded.
 
-- [ ] Paced batch mode: honor `injection_rate` in `sim_type = batch`, so a
-      fixed-bytes run is a clean all-to-all completion time.
+- [x] Paced batch mode: `batch_paced = 1` honors `injection_rate` in
+      `sim_type = batch` (options.md; test `fabric_batch_paced`). Batch
+      destinations are still random, so a uniform batch is not equal bytes
+      per pair: on 4x4x4 it delivered about 92% of the offered rate even
+      below saturation and could not tell one OCS failure from none. The
+      message engine below is needed for a true all-to-all.
 - [ ] Message engine: a schedule file of messages (source, destination,
       bytes, dependencies on earlier messages); BookSim injects each when its
       dependencies have arrived and reports per-step and total completion

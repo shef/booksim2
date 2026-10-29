@@ -326,11 +326,31 @@ def utils_torus_twisted_hops():
     assert hops[True] < hops[False] - 0.2, hops
 
 
+def fabric_batch_paced():
+    """batch_paced = 1 makes a batch follow injection_rate: below saturation,
+    halving the rate about doubles the batch time (the batch is long enough
+    that fiber latency at the tail is small). Upstream batch mode
+    (the default) ignores the rate."""
+    d = os.path.join(TMP, "t444_batch")
+    exporter("torus.py", d, "--dims", "4", "4", "4")
+    args = [f"network_file={d}/topo.txt", f"fabric_path_file={d}/paths.txt",
+            "routing_function=src", "sim_type=batch", "batch_size=300", "batch_count=1"]
+
+    def duration(rate, paced):
+        out = booksim(args + [f"injection_rate={rate}", f"batch_paced={paced}"])
+        m = re.findall(r"Overall min batch duration = (\d+)", out)
+        assert m, out[-2000:]
+        return int(m[0])
+    fast, slow = duration(0.01, 1), duration(0.005, 1)
+    assert 1.7 < slow / fast < 2.3, (fast, slow)
+    assert duration(0.01, 0) == duration(0.005, 0)
+
+
 TESTS = [make_upstream_test(c) for c in UPSTREAM] + [
     fabric_latency_per_hop, fabric_dor_torus_hops, fabric_src_torus_fixture,
     fabric_switched_terminals, fabric_groupshift, fabric_matrix_errors, fabric_port_gap_error,
     fabric_measure_reorder, utils_boardfly_collectives, utils_torus_fault_routes,
-    utils_cdgcheck, utils_torus_twisted_hops,
+    utils_cdgcheck, utils_torus_twisted_hops, fabric_batch_paced,
 ] + [make_smoke_test(r, x) for r, x in (("lduato", []), ("duato", []), ("updown", []),
                                         ("esc", []), ("ugal", ["ugal_threshold=128"]))]
 

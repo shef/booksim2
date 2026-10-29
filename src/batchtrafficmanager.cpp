@@ -41,6 +41,7 @@ BatchTrafficManager::BatchTrafficManager( const Configuration &config,
 {
 
   _max_outstanding = config.GetInt ("max_outstanding_requests");  
+  _paced = config.GetInt("batch_paced") != 0;
 
   _batch_size = config.GetInt( "batch_size" );
   _batch_count = config.GetInt( "batch_count" );
@@ -91,9 +92,12 @@ int BatchTrafficManager::_IssuePacket( int source, int cl )
       }
     }
   } else { //normal
+    // Paced: issue at injection_rate, as open-loop runs do, so a batch
+    // measures completion time below saturation rather than in overload.
     if((_packet_seq_no[source] < _batch_size) && 
        ((_max_outstanding <= 0) || 
-	(_requestsOutstanding[source] < _max_outstanding))) {
+	(_requestsOutstanding[source] < _max_outstanding)) &&
+       (!_paced || _injection_process[cl]->test(source))) {
       result = _GetNextPacketSize(cl);
       _requestsOutstanding[source]++;
     }

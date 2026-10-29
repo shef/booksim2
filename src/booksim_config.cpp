@@ -200,6 +200,7 @@ BookSimConfig::BookSimConfig( )
   _int_map["batch_size"] = 1000;
   _int_map["batch_count"] = 1;
   _int_map["max_outstanding_requests"] = 0; // 0 = unlimited
+  _int_map["batch_paced"] = 0; // 1 = batch packets follow injection_rate (fabric)
 
   // Use read/write request reply scheme
   _int_map["use_read_write"] = 0;
