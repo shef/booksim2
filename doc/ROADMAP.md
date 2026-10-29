@@ -50,7 +50,11 @@ ignores `injection_rate`, so it always runs overloaded.
       `msg-ring`, `msg-innet`; `fabric_eject_any` so incast uses every
       ejection port (all-to-all on an 8-chip Clos: 7,084 -> 2,388 cycles).
       Open: ring all-reduce is slower with `fabric_eject_any` (9,359 vs
-      7,256); rings on a Clos need multipath routing (section 4).
+      7,256 single-path, 5,789 vs 4,960 multipath): each ring step's span
+      grows over the run (608 -> 875 ns fixed, 673 -> 1,518 ns any), so it
+      is a dynamic interaction, likely between ejection-port choice and the
+      single destination VC per input link. More VCs per ejection port made
+      it worse.
 - [x] Multicast by relay replication (`msg-bcast --mode relay`, test
       `fabric_multicast_relay`): copies made at compute terminals, forwarded
       packet by packet with `stream=`. On an 8-chip Clos it is about six
