@@ -226,8 +226,17 @@ it forwards. A new system only needs its group lists.
 | `msg-tree` | tree all-reduce: the whole buffer reduced up a binary tree and broadcast down, chunk by chunk; `--double` uses two complementary trees with half each (NCCL's double binary tree); about 2 log2 N steps instead of 2(N-1), for latency-bound sizes and switched fabrics |
 
 `--bytes S` is the buffer per chip, as in NCCL. `--chunks C` makes C
-independent pipelines; `--reduce-gbps R` delays each forward of reduced
-data by bytes / R; `--repeat L` runs L collectives back to back, each chip
+independent pipelines. A reduction profile delays each forward of reduced
+data by ns + bytes / gbps, on the bytes that send depends on: one incoming
+shard per ring step, all n - 1 in a direct stage, every child's buffer at a
+tree node, and once more before the all-gather (the last reduce-scatter
+step's data). `--reduce-profile NAME` takes it from
+[`reduce_profiles.json`](../../utils/fabric/reduce_profiles.json) (HBM-bound
+on Ironwood, a near-network engine, a switch; mostly assumptions, labelled
+with their sources); `--reduce-gbps R` and `--reduce-ns T` set or override
+its fields. With `msg-innet` the engine streams, so its reduction appears
+once as a delay (latency plus one chip's share at its rate) and an engine
+slower than its links is not throttled. `--repeat L` runs L collectives back to back, each chip
 starting the next after receiving all of the previous (inference decode:
 one small all-reduce per layer). Steps are tagged (`rs0.3` is reduce-scatter stage 0,
 step 3) so per-step spans show when a run reaches its steady state.
@@ -293,8 +302,9 @@ Some systems reduce or replicate data outside the main compute units:
 
 Plan, in increasing engine change:
 
-1. **Reduction profiles** (generators only): per-system reduction latency and
-   throughput, applied as `delay`; an on-chip engine is a faster profile.
+1. **Reduction profiles** (implemented, generators only): per-system
+   reduction latency and throughput, applied as `delay`; an on-chip engine
+   is a faster profile (`--reduce-profile`, `reduce_profiles.json`).
 2. **Streaming dependencies** (implemented): `stream=ID` lets a message send
    each packet once the matching packet of message ID has arrived, instead
    of waiting for all of it. In-stream reducers work this way; chunking only

@@ -59,8 +59,11 @@ all-to-all where each chip sends S / N to every other chip.
                      by chunk (use --chunks to pipeline); --double splits it
                      over two complementary trees (NCCL's double binary tree)
 
-  --chunks C splits the work into C independent pipelines; --reduce-gbps R
-  adds the time to reduce received data (bytes / R) before forwarding it;
+  --chunks C splits the work into C independent pipelines; a reduction
+  profile adds the time to reduce received data before forwarding it,
+  ns + bytes / gbps on the bytes the send depends on (--reduce-profile NAME
+  from reduce_profiles.json; --reduce-gbps R and --reduce-ns T set or
+  override its fields);
   --repeat L runs L collectives back to back, each chip starting the next
   after receiving all of the previous (inference decode: one per layer).
 
@@ -81,10 +84,13 @@ usage: collectives.py torus-rings OUT [--dims X Y Z] [--twisted]
                       --microbatches M [--compute-ns NS]
        collectives.py msg-tree OUT --bytes S (--endpoints N | --topo TOPO_FILE)
                       [--double] [COMMON]
-         COMMON: [--chunks C] [--reduce-gbps R] [--repeat L]
+         COMMON: [--chunks C] [--reduce-profile NAME] [--reduce-gbps R]
+                 [--reduce-ns T] [--repeat L]
 """
 
 import argparse
+import json
+import os
 import random
 
 import fabricio
@@ -215,24 +221,65 @@ class Schedule:
                           sorted(set(stream))))
         return len(self.msgs) - 1
 
+    def received(self, ids):
+        return sum(self.msgs[i][2] for i in ids)
 
-def _stage(sch, groups, algo, shard, frontier, tag, reduce_ns_per_byte):
-    """One stage; shard = bytes per message. Returns the new frontier
+
+class Reduction:
+    """Time to reduce received data before forwarding it: ns + bytes / gbps
+    (GB/s = bytes per ns), charged on the bytes a send's dependencies
+    brought in. A profile from reduce_profiles.json or the flags."""
+
+    def __init__(self, gbps=0.0, ns=0.0):
+        self.gbps, self.ns = gbps, ns
+
+    def delay(self, nbytes):
+        if not nbytes or not (self.gbps or self.ns):
+            return 0
+        return round(self.ns + (nbytes / self.gbps if self.gbps else 0))
+
+
+NO_REDUCE = Reduction()
+
+
+def load_reduction(profile=None, gbps=None, ns=None):
+    """A named profile (reduce_profiles.json), with --reduce-gbps and
+    --reduce-ns overriding its fields."""
+    r = Reduction()
+    if profile:
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "reduce_profiles.json")) as f:
+            profiles = json.load(f)["profiles"]
+        if profile not in profiles:
+            raise SystemExit(f"unknown reduction profile {profile!r}; have {', '.join(profiles)}")
+        r = Reduction(profiles[profile].get("gbps", 0), profiles[profile].get("ns", 0))
+    if gbps is not None:
+        r.gbps = gbps
+    if ns is not None:
+        r.ns = ns
+    return r
+
+
+def _stage(sch, groups, algo, shard, frontier, tag, reduce, first_only=False):
+    """One stage; shard = bytes per message. A send waits for the data it
+    forwards plus the time to reduce it (reduce.delay of the bytes its
+    dependencies brought in); with first_only, only sends that depend on
+    the previous stage pay it (the all-gather's first stage forwards the
+    reduce-scatter's last, still unreduced, data). Returns the new frontier
     {endpoint: message ids it received in the stage's last step}."""
     new = {}
     for g in groups:
         n = len(g)
         if n < 2:
             continue
-        delay = round(shard * reduce_ns_per_byte)
         if algo == "ring":
             incoming = {m: frontier.get(m, []) for m in g}
             for k in range(n - 1):
                 got = {}
+                r = reduce if k == 0 or not first_only else NO_REDUCE
                 for i, m in enumerate(g):
                     dst = g[(i + 1) % n]
                     deps = incoming[m]
-                    got[dst] = [sch.add(m, dst, shard, deps, delay if deps else 0,
+                    got[dst] = [sch.add(m, dst, shard, deps, r.delay(sch.received(deps)),
                                         f"{tag}.{k}")]
                 incoming = got
             new.update(incoming)
@@ -240,26 +287,28 @@ def _stage(sch, groups, algo, shard, frontier, tag, reduce_ns_per_byte):
             got = {m: [] for m in g}
             for m in g:
                 deps = frontier.get(m, [])
+                delay = reduce.delay(sch.received(deps))
                 for dst in g:
                     if dst != m:
-                        got[dst].append(sch.add(m, dst, shard, deps, delay if deps else 0, tag))
+                        got[dst].append(sch.add(m, dst, shard, deps, delay, tag))
             new.update(got)
     return new
 
 
-def allreduce(sch, stages, nbytes, reduce_gbps=0, prefix=""):
+def allreduce(sch, stages, nbytes, reduce=NO_REDUCE, prefix=""):
     """stages: [(groups, "ring" | "direct")], groups of equal size per stage."""
-    rns = 1.0 / reduce_gbps if reduce_gbps else 0.0  # GB/s = bytes per ns
     sizes, size = [], float(nbytes)
     for groups, _ in stages:
         sizes.append(size / len(groups[0]))      # shard per message
         size /= len(groups[0])
     frontier = {}
     for s, (groups, algo) in enumerate(stages):
-        frontier = _stage(sch, groups, algo, sizes[s], frontier, f"{prefix}rs{s}", rns)
+        frontier = _stage(sch, groups, algo, sizes[s], frontier, f"{prefix}rs{s}", reduce)
     for s in reversed(range(len(stages))):
         groups, algo = stages[s]
-        frontier = _stage(sch, groups, algo, sizes[s], frontier, f"{prefix}ag{s}", 0.0)
+        first = s == len(stages) - 1
+        frontier = _stage(sch, groups, algo, sizes[s], frontier, f"{prefix}ag{s}",
+                          reduce if first else NO_REDUCE, first_only=True)
 
 
 def repeated(sch, times):
@@ -319,25 +368,25 @@ def torus_lines(D, d):
     return groups
 
 
-def msg_torus(sch, D, nbytes, reduce_gbps=0):
+def msg_torus(sch, D, nbytes, reduce=NO_REDUCE):
     for order in ((0, 1, 2), (1, 2, 0), (2, 0, 1)):
         for direction in (1, -1):
             stages = [([g[::direction] for g in torus_lines(D, d)], "ring") for d in order]
-            allreduce(sch, stages, nbytes / 6, reduce_gbps)
+            allreduce(sch, stages, nbytes / 6, reduce)
 
 
-def msg_boardfly(sch, groups, nbytes, reduce_gbps=0):
+def msg_boardfly(sch, groups, nbytes, reduce=NO_REDUCE):
     tray = [[g * 32 + t * 4 + c for c in range(4)] for g in range(groups) for t in range(8)]
     group = [[g * 32 + t * 4 + c for t in range(8)] for g in range(groups) for c in range(4)]
     glob = [[g * 32 + i for g in range(groups)] for i in range(32)]
     stages = [(tray, "direct"), (group, "direct")] + ([(glob, "direct")] if groups > 1 else [])
-    allreduce(sch, stages, nbytes, reduce_gbps)
+    allreduce(sch, stages, nbytes, reduce)
 
 
-def msg_rings(sch, cycles, nbytes, reduce_gbps=0):
+def msg_rings(sch, cycles, nbytes, reduce=NO_REDUCE):
     for c in cycles:
         for direction in (1, -1):
-            allreduce(sch, [([c[::direction]], "ring")], nbytes / (2 * len(cycles)), reduce_gbps)
+            allreduce(sch, [([c[::direction]], "ring")], nbytes / (2 * len(cycles)), reduce)
 
 
 def binary_tree(order):
@@ -346,54 +395,58 @@ def binary_tree(order):
     return {order[i]: (order[(i - 1) // 2] if i else None) for i in range(len(order))}
 
 
-def msg_tree(sch, parent, nbytes, reduce_gbps=0, tag="tree"):
+def msg_tree(sch, parent, nbytes, reduce=NO_REDUCE, tag="tree"):
     """Reduce nbytes up the tree, then broadcast down. A node sends up once
     all its children's data has arrived (plus reduction time), and down once
-    its parent's has; the root turns the reduction around."""
+    its parent's has; the root reduces, then turns around."""
     children = {m: [] for m in parent}
     for m, p in parent.items():
         if p is not None:
             children[p].append(m)
-    delay = round(nbytes / reduce_gbps) if reduce_gbps else 0
     up = {}                                   # node -> its message to the parent
     def send_up(m):
         for c in children[m]:
             send_up(c)
         deps = [up[c] for c in children[m]]
         if parent[m] is not None:
-            up[m] = sch.add(m, parent[m], nbytes, deps, delay if deps else 0, f"{tag}.up")
+            up[m] = sch.add(m, parent[m], nbytes, deps, reduce.delay(sch.received(deps)),
+                            f"{tag}.up")
     root = next(m for m, p in parent.items() if p is None)
     send_up(root)
-    def send_down(m, dep):
+    def send_down(m, dep, delay=0):
         for c in children[m]:
-            send_down(c, [sch.add(m, c, nbytes, dep, 0, f"{tag}.down")])
-    send_down(root, [up[c] for c in children[root]])
+            send_down(c, [sch.add(m, c, nbytes, dep, delay, f"{tag}.down")])
+    top = [up[c] for c in children[root]]
+    send_down(root, top, reduce.delay(sch.received(top)))
 
 
-def msg_trees(sch, endpoints, nbytes, double=False, reduce_gbps=0):
+def msg_trees(sch, endpoints, nbytes, double=False, reduce=NO_REDUCE):
     if not double:
-        msg_tree(sch, binary_tree(endpoints), nbytes, reduce_gbps)
+        msg_tree(sch, binary_tree(endpoints), nbytes, reduce)
         return
     # Complementary trees: the second runs over the reversed order, so the
     # first tree's leaves are (mostly) the second's inner nodes.
-    msg_tree(sch, binary_tree(endpoints), nbytes / 2, reduce_gbps, "tree0")
-    msg_tree(sch, binary_tree(endpoints[::-1]), nbytes / 2, reduce_gbps, "tree1")
+    msg_tree(sch, binary_tree(endpoints), nbytes / 2, reduce, "tree0")
+    msg_tree(sch, binary_tree(endpoints[::-1]), nbytes / 2, reduce, "tree1")
 
 
-def msg_ring(sch, endpoints, nbytes, reduce_gbps=0):
+def msg_ring(sch, endpoints, nbytes, reduce=NO_REDUCE):
     """Bidirectional ring all-reduce over endpoints in the given order
     (a logical ring: each step's message is routed by the fabric)."""
     for direction in (1, -1):
-        allreduce(sch, [([endpoints[::direction]], "ring")], nbytes / 2, reduce_gbps)
+        allreduce(sch, [([endpoints[::direction]], "ring")], nbytes / 2, reduce)
 
 
-def msg_innet(sch, chips, engines, nbytes, reduce_gbps=0):
+def msg_innet(sch, chips, engines, nbytes, reduce=NO_REDUCE):
     """In-network all-reduce: each chip streams 1/K of its data to each of the
     K engines (compute terminals, "cR"), which reduce as data arrives and
     stream the result back to every chip, as switch-reduction (SHARP-style)
     collectives do."""
     k = len(engines)
-    delay = round(nbytes / k / reduce_gbps / max(1, len(chips))) if reduce_gbps else 0
+    # Streams forward packet by packet, so the engine's reduction shows up
+    # once, as a delay: its latency plus one chip's share at its rate (an
+    # engine slower than the links is not throttled; see messages.md).
+    delay = reduce.delay(nbytes / k)
     for e in engines:
         ups = [sch.add(c, e, nbytes / k, tag="innet.up") for c in chips]
         for c in chips:
@@ -515,7 +568,9 @@ def main():
         m[name].add_argument("--bytes", type=float, required=True)
         if name not in ("msg-alltoall", "msg-bcast", "msg-moe", "msg-pipeline"):
             m[name].add_argument("--chunks", type=int, default=1)
-            m[name].add_argument("--reduce-gbps", type=float, default=0)
+            m[name].add_argument("--reduce-gbps", type=float, help="reduction rate, GB/s")
+            m[name].add_argument("--reduce-ns", type=float, help="reduction latency per step, ns")
+            m[name].add_argument("--reduce-profile", help="named profile in reduce_profiles.json")
         m[name].add_argument("--repeat", type=int, default=1)
     for name in ("msg-alltoall", "msg-tree", "msg-ring", "msg-innet", "msg-bcast", "msg-moe",
                  "msg-pipeline"):
@@ -538,18 +593,20 @@ def main():
     m["msg-boardfly"].add_argument("--groups", type=int, default=32)
     a = ap.parse_args()
     if a.cmd.startswith("msg-"):
+        red = (load_reduction(a.reduce_profile, a.reduce_gbps, a.reduce_ns)
+               if hasattr(a, "reduce_gbps") else NO_REDUCE)
         if a.cmd == "msg-alltoall":
             eps = endpoints_of(a.topo) if a.topo else list(range(a.endpoints))
             sch = msg_alltoall(eps, a.bytes)
         elif a.cmd == "msg-torus":
-            sch = chunked(msg_torus, a.chunks, a.bytes, a.dims, reduce_gbps=a.reduce_gbps)
+            sch = chunked(msg_torus, a.chunks, a.bytes, a.dims, reduce=red)
         elif a.cmd == "msg-ring":
             eps = endpoints_of(a.topo) if a.topo else list(range(a.endpoints))
-            sch = chunked(msg_ring, a.chunks, a.bytes, eps, reduce_gbps=a.reduce_gbps)
+            sch = chunked(msg_ring, a.chunks, a.bytes, eps, reduce=red)
         elif a.cmd == "msg-innet":
             eps = endpoints_of(a.topo) if a.topo else list(range(a.endpoints))
             engines = [f"c{r}" for r in a.engines.split(",")]
-            sch = chunked(msg_innet, a.chunks, a.bytes, eps, engines, reduce_gbps=a.reduce_gbps)
+            sch = chunked(msg_innet, a.chunks, a.bytes, eps, engines, reduce=red)
         elif a.cmd == "msg-pipeline":
             eps = endpoints_of(a.topo) if a.topo else list(range(a.endpoints))
             if len(eps) % a.stages:
@@ -572,13 +629,13 @@ def main():
         elif a.cmd == "msg-tree":
             eps = endpoints_of(a.topo) if a.topo else list(range(a.endpoints))
             sch = chunked(msg_trees, a.chunks, a.bytes, eps, double=a.double,
-                          reduce_gbps=a.reduce_gbps)
+                          reduce=red)
         elif a.cmd == "msg-boardfly":
-            sch = chunked(msg_boardfly, a.chunks, a.bytes, a.groups, reduce_gbps=a.reduce_gbps)
+            sch = chunked(msg_boardfly, a.chunks, a.bytes, a.groups, reduce=red)
         else:
             _, cycles = ham_cycles(a.topo, a.k)
             print(f"{len(cycles)} edge-disjoint Hamiltonian rings")
-            sch = chunked(msg_rings, a.chunks, a.bytes, cycles, reduce_gbps=a.reduce_gbps)
+            sch = chunked(msg_rings, a.chunks, a.bytes, cycles, reduce=red)
         sch = repeated(sch, a.repeat)
         fabricio.write_messages(a.out, sch.msgs)
         print(f"{a.out}: {len(sch.msgs)} messages, "

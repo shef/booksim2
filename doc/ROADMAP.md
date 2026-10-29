@@ -44,8 +44,9 @@ ignores `injection_rate`, so it always runs overloaded.
       dependencies for in-stream reduction (done: test
       `fabric_messages_stream`); compute terminals (`c R N`, done: test
       `fabric_compute_terminals`) so switches can reduce and replicate
-      (NVLink SHARP, multicast). Next: reduction profiles and generators
-      that use them (in-switch trees, relay multicast).
+      (NVLink SHARP, multicast); reduction profiles (done: `--reduce-profile`,
+      `reduce_profiles.json`; charged on the bytes each send depends on).
+      Next: in-switch trees.
 - [x] Generic single-tier Clos exporter (`clos.py`) and generators
       `msg-ring`, `msg-innet`; `fabric_eject_any` so incast uses every
       ejection port. The 7,084 -> 2,388 all-to-all gain it was credited

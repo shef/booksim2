@@ -1,0 +1,18 @@
+{
+  "about": "Reduction profiles for collectives.py (--reduce-profile): time to reduce received data before forwarding it is ns + bytes / gbps. Values are assumptions unless a source is given; add measured profiles for your systems and keep the source field honest.",
+  "profiles": {
+    "none": {"gbps": 0, "ns": 0, "source": "no reduction cost (the default)"},
+    "hbm-ironwood": {
+      "gbps": 2457, "ns": 1000,
+      "source": "rate: Ironwood HBM bandwidth 7.37 TB/s (Google, public) / 3, as a reduce reads two operands and writes one through HBM; latency: assumed per-step kernel and synchronization overhead"
+    },
+    "near-network": {
+      "gbps": 1200, "ns": 200,
+      "source": "assumed: an engine beside the network port (in the spirit of TPU 8i's Collectives Acceleration Engine, Hot Chips 2026, which publishes no absolute numbers) that reduces at about link rate with a short pipeline"
+    },
+    "switch": {
+      "gbps": 0, "ns": 300,
+      "source": "assumed: an in-switch reducer (SHARP-style) that keeps up with its links; latency only. Use with msg-innet"
+    }
+  }
+}

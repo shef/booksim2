@@ -476,7 +476,9 @@ def utils_collective_messages():
 
 def fabric_messages_ring_allreduce():
     """Bidirectional ring all-reduce on an 8-chip ring takes 2(n-1) steps of
-    (S / 2n) bytes each plus one neighbour latency per step."""
+    (S / 2n) bytes each plus one neighbour latency per step. A reduction
+    profile adds its time once per reduce step, n - 1 of them in a row
+    (the last before the all-gather); an unknown profile is refused."""
     n = 8
     d = _write(os.path.join(TMP, "msg_ring8"),
                topo=f"{n}\nt 0 2\n" + "".join(f"t {r} 2\n" for r in range(1, n))
@@ -493,6 +495,20 @@ def fabric_messages_ring_allreduce():
     want = 2 * (n - 1) * (lat + 1000 - 1)
     assert abs(t - want) / want < 0.03, (t, want, lat)
     assert "Message tag ag0.6" in out
+    exporter("collectives.py", "msg-rings", f"{d}/msgs.txt", f"{d}/topo.txt",
+             "--bytes", str(S), "--k", "1", "--reduce-ns", "500")
+    t_ns, _, _ = _messages(d)
+    exporter("collectives.py", "msg-rings", f"{d}/msgs.txt", f"{d}/topo.txt",
+             "--bytes", str(S), "--k", "1", "--reduce-gbps", "400")   # 200 KB: 500 ns
+    t_gbps, _, _ = _messages(d)
+    for got in (t_ns, t_gbps):
+        assert abs(got - t - (n - 1) * 500) < 100, (t, t_ns, t_gbps)
+    p = subprocess.run([sys.executable, os.path.join(UTILS, "collectives.py"), "msg-ring",
+                        f"{d}/x.txt", "--bytes", "1", "--endpoints", "2",
+                        "--reduce-profile", "bogus"], capture_output=True, text=True)
+    assert p.returncode != 0 and "unknown reduction profile" in p.stderr, p.stderr
+    exporter("collectives.py", "msg-ring", f"{d}/x.txt", "--bytes", "1000", "--endpoints", "2",
+             "--reduce-profile", "hbm-ironwood")
 
 
 def fabric_link_rates():

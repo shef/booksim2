@@ -17,6 +17,7 @@ of each exporter and are documented on the system pages (doc/systems/).
 | `flitsim.py` | the small flit-level ring simulator behind the viewer's virtual-channel scenes | |
 | `animate.py` | animated SVGs of collectives for the docs | |
 | `fabricio.py` | the file writers the exporters share | |
+| `reduce_profiles.json` | reduction profiles for `collectives.py --reduce-profile` (time to reduce before forwarding: ns + bytes / gbps; sources noted) | [messages.md](../../doc/fabric/messages.md) |
 
 ## Examples
 
@@ -43,6 +44,7 @@ python3 collectives.py torus-rings /tmp/ar.txt --twisted
 # Equal-bytes all-to-all and a torus all-reduce as message files (sim_type = messages)
 python3 collectives.py msg-alltoall /tmp/a2a.txt --bytes 1e6 --endpoints 64
 python3 collectives.py msg-torus /tmp/ar.txt --bytes 6e6 --dims 4 4 4 --chunks 4
+python3 collectives.py msg-ring /tmp/ring.txt --bytes 1e6 --endpoints 8 --reduce-profile hbm-ironwood
 #   ... sim_type=messages message_file=/tmp/a2a.txt speculative=1
 
 # Five seeds of a message run, with a confidence interval
