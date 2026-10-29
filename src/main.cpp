@@ -127,6 +127,9 @@ bool Simulate( BookSimConfig const & config )
 
   bool result = trafficManager->Run() ;
   StatsJson::Set( "run", "cycles", (double)trafficManager->getTime() );
+  if ( config.GetStr( "link_util_file" ) != "" ) {
+    net[0]->WriteLinkUtil( config.GetStr( "link_util_file" ), trafficManager->getTime() );
+  }
 
 
   gettimeofday(&end_time, NULL);

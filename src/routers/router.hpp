@@ -104,6 +104,8 @@ public:
   // Flits per cycle an output may send (0 < rate <= 1; fabric link rates).
   // Only routers that implement it accept a rate below 1.
   virtual void SetOutputRate( int output, double rate );
+  // Flits sent on an output since the start, or -1 if the router does not count.
+  virtual long long SentFlits( int output ) const { return -1; }
  
   inline FlitChannel * GetInputChannel( int input ) const {
     assert((input >= 0) && (input < _inputs));

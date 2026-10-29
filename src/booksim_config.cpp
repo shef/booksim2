@@ -203,6 +203,7 @@ BookSimConfig::BookSimConfig( )
   _int_map["batch_paced"] = 0; // 1 = batch packets follow injection_rate (fabric)
 
   AddStrField("stats_json", "");  // write structured results to this file
+  AddStrField("link_util_file", "");  // per-link flit counts (fabric)
 
   // sim_type = messages (doc/fabric/messages.md)
   AddStrField("message_file", "");

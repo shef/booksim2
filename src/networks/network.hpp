@@ -91,6 +91,8 @@ public:
   virtual double Capacity( ) const;
   // Flits per cycle a node's terminal may inject (fabric endpoint caps).
   virtual double TerminalRate( int node ) const { return 1.0; }
+  // Write per-link flit counts and utilization over `cycles` (fabric only).
+  virtual void WriteLinkUtil( const string &file, long long cycles ) const;
 
   virtual void ReadInputs( );
   virtual void Evaluate( );

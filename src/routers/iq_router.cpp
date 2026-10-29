@@ -162,6 +162,7 @@ IQRouter::IQRouter( Configuration const & config, Module *parent,
   _output_buffer.resize(_outputs); 
   _out_rate.assign(_outputs, 1.0);
   _out_tokens.assign(_outputs, 1.0);
+  _out_sent.assign(_outputs, 0);
   _credit_buffer.resize(_inputs); 
 
   // Switch configuration (when held for multiple cycles)
@@ -2293,6 +2294,7 @@ void IQRouter::_SendFlits( )
 	cout << "Outport " << output << endl << "Stop Mark" << endl;
       }
       _output_channels[output]->Send( f );
+      ++_out_sent[output];
     }
   }
 }

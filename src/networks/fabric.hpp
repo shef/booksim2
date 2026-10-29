@@ -71,6 +71,7 @@ class Fabric : public Network {
 public:
   Fabric(const Configuration &config, const std::string &name);
   virtual double TerminalRate(int node) const;
+  virtual void WriteLinkUtil(const std::string &file, long long cycles) const;
   static void RegisterRoutingFunctions();
 };
 

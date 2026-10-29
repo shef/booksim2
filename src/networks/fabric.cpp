@@ -26,6 +26,7 @@
 */
 
 #include "fabric.hpp"
+#include "stats_json.hpp"
 
 #include <algorithm>
 #include <cassert>
@@ -59,6 +60,8 @@ std::vector<int> gTerms;       // [router] terminal count
 std::vector<int> gFirstNode;   // [router] first node id
 std::vector<int> gNodeRouter;  // [node] router
 std::vector<double> gTermRate; // [router] terminal rate, flits per cycle
+std::vector<std::vector<int> > gPortPeer;     // [router][link port] neighbour router
+std::vector<std::vector<double> > gPortRate;  // [router][link port] rate
 std::vector<std::vector<int> > gPortKind;  // [router][link port] kind
 std::vector<unsigned long long> gArrDown;  // [router] bit p: arriving on p was a down hop
 std::vector<Entry> gTable;                 // [router * R + dest router]
@@ -398,6 +401,30 @@ void Fabric::_ComputeSize(const Configuration &config) {
   assert(_nodes > 0);
 }
 
+// One row per link direction: flits sent and utilization of that link's own
+// rate over the whole run (warm-up and drain included for open-loop runs).
+void Fabric::WriteLinkUtil(const std::string &file, long long cycles) const {
+  std::ofstream out(file.c_str());
+  out << "router,port,to_router,kind,rate,flits,utilization" << std::endl;
+  double max_u = 0, sum_u = 0;
+  int n = 0;
+  for (int r = 0; r < _size; ++r) {
+    for (size_t p = 1; p < gPortPeer[r].size(); ++p) {
+      long long sent = _routers[r]->SentFlits(gTerms[r] + p - 1);
+      double u = (cycles > 0 && sent >= 0) ? sent / (cycles * gPortRate[r][p]) : 0;
+      out << r << ',' << p << ',' << gPortPeer[r][p] << ',' << gPortKind[r][p] << ','
+          << gPortRate[r][p] << ',' << sent << ',' << u << std::endl;
+      max_u = std::max(max_u, u);
+      sum_u += u;
+      ++n;
+    }
+  }
+  StatsJson::Set("links", "count", (double)n);
+  StatsJson::Set("links", "max_utilization", max_u);
+  StatsJson::Set("links", "mean_utilization", n ? sum_u / n : 0);
+  StatsJson::Set("links", "cycles", (double)cycles);
+}
+
 double Fabric::TerminalRate(int node) const {
   return gTermRate.empty() ? 1.0 : gTermRate[gNodeRouter[node]];
 }
@@ -408,13 +435,13 @@ void FabricTerminals(std::vector<int> *first, std::vector<int> *count) {
 }
 
 void Fabric::_BuildNet(const Configuration &config) {
-  struct End { int chan_out, chan_in, kind; double rate; };
+  struct End { int chan_out, chan_in, kind; double rate; int peer; };
   int routers;
   std::vector<int> terms;
   std::vector<Link> links;
   ReadTopology(_topo_file, config.GetInt("fabric_terminals"), &routers, &terms, &links);
 
-  std::vector<std::vector<End> > ports(_size, std::vector<End>(1, End{-1, -1, kNone, 1.0}));
+  std::vector<std::vector<End> > ports(_size, std::vector<End>(1, End{-1, -1, kNone, 1.0, -1}));
   for (size_t i = 0; i < links.size(); ++i) {
     const Link &l = links[i];
     int c_uv = 2 * i, c_vu = 2 * i + 1;
@@ -422,14 +449,16 @@ void Fabric::_BuildNet(const Configuration &config) {
     _chan_cred[c_uv]->SetLatency(l.lat);
     _chan[c_vu]->SetLatency(l.lat);
     _chan_cred[c_vu]->SetLatency(l.lat);
-    if ((int)ports[l.u].size() <= l.pu) ports[l.u].resize(l.pu + 1, End{-1, -1, kNone, 1.0});
-    if ((int)ports[l.v].size() <= l.pv) ports[l.v].resize(l.pv + 1, End{-1, -1, kNone, 1.0});
+    if ((int)ports[l.u].size() <= l.pu) ports[l.u].resize(l.pu + 1, End{-1, -1, kNone, 1.0, -1});
+    if ((int)ports[l.v].size() <= l.pv) ports[l.v].resize(l.pv + 1, End{-1, -1, kNone, 1.0, -1});
     assert(ports[l.u][l.pu].chan_out < 0 && ports[l.v][l.pv].chan_out < 0);
-    ports[l.u][l.pu] = End{c_uv, c_vu, l.kind, l.rate};
-    ports[l.v][l.pv] = End{c_vu, c_uv, l.kind, l.rate};
+    ports[l.u][l.pu] = End{c_uv, c_vu, l.kind, l.rate, l.v};
+    ports[l.v][l.pv] = End{c_vu, c_uv, l.kind, l.rate, l.u};
   }
 
   gPortKind.assign(_size, std::vector<int>());
+  gPortPeer.assign(_size, std::vector<int>(1, -1));
+  gPortRate.assign(_size, std::vector<double>(1, 1.0));
   for (int r = 0; r < _size; ++r) {
     int nlinks = ports[r].size() - 1;
     int radix = gTerms[r] + nlinks;
@@ -454,6 +483,8 @@ void Fabric::_BuildNet(const Configuration &config) {
       _routers[r]->AddInputChannel(_chan[ports[r][p].chan_in], _chan_cred[ports[r][p].chan_in]);
       if (ports[r][p].rate < 1.0) _routers[r]->SetOutputRate(gTerms[r] + p - 1, ports[r][p].rate);
       gPortKind[r].push_back(ports[r][p].kind);
+      gPortRate[r].push_back(ports[r][p].rate);
+      gPortPeer[r].push_back(ports[r][p].peer);
     }
   }
 

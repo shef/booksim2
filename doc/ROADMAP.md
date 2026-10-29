@@ -85,7 +85,8 @@ ignores `injection_rate`, so it always runs overloaded.
 - [ ] Link-level retry and bit errors.
 - [ ] Failures and OCS reconfiguration during a run.
 - [ ] Randomized or weighted multipath routing (NSDI 2024 future work).
-- [ ] Per-link utilization output (also feeds the viewer).
+- [x] Per-link utilization output: `link_util_file` (options.md; test
+      `fabric_link_util`). Next: feed it to the viewer.
 
 ## 5. Scale
 

@@ -563,6 +563,23 @@ def utils_harness():
     assert r["rows"][0]["accepted"]["mean"] > 0.04, r["rows"][0]
 
 
+def fabric_link_util():
+    """link_util_file counts the flits on each link direction: an 800-flit
+    message 0 -> 2 on a line puts exactly 800 on 0 -> 1 and 1 -> 2 and none
+    on the reverse directions; stats_json gets the busiest link."""
+    import csv
+    import json
+    d = _write(os.path.join(TMP, "util"), topo="3\n0 1 1 1 0 10\n1 2 2 1 0 10\n",
+               paths="0 1 1 1 0\n1 0 1 1 0\n0 2 2 1 0 2 0\n2 0 2 1 0 1 0\n1 2 1 2 0\n2 1 1 1 0\n",
+               msgs="0 0 2 160000\n")
+    util, js = os.path.join(d, "util.csv"), os.path.join(d, "r.json")
+    _messages(d, [f"link_util_file={util}", f"stats_json={js}"])
+    flits = {(int(r["router"]), int(r["to_router"])): int(r["flits"]) for r in csv.DictReader(open(util))}
+    assert flits == {(0, 1): 800, (1, 0): 0, (1, 2): 800, (2, 1): 0}, flits
+    links = json.load(open(js))["links"]
+    assert links["count"] == 4 and 0 < links["max_utilization"] <= 1, links
+
+
 TESTS = [make_upstream_test(c) for c in UPSTREAM] + [
     fabric_latency_per_hop, fabric_dor_torus_hops, fabric_src_torus_fixture,
     fabric_switched_terminals, fabric_groupshift, fabric_matrix_errors, fabric_port_gap_error,
@@ -571,6 +588,7 @@ TESTS = [make_upstream_test(c) for c in UPSTREAM] + [
     fabric_messages_basic, fabric_messages_endpoints, fabric_messages_stall,
     utils_collective_messages, fabric_messages_ring_allreduce,
     fabric_link_rates, fabric_stats_json, utils_harness,
+    fabric_link_util,
 ] + [make_smoke_test(r, x) for r, x in (("lduato", []), ("duato", []), ("updown", []),
                                         ("esc", []), ("ugal", ["ugal_threshold=128"]))]
 

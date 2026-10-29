@@ -292,3 +292,8 @@ void Network::DumpNodeMap( ostream & os, string const & prefix ) const
        << _eject[s]->GetSource()->GetID() << ','
        << _inject[s]->GetSink()->GetID() << endl;
 }
+
+void Network::WriteLinkUtil( const string &file, long long cycles ) const
+{
+  cerr << "link_util_file is supported by topology = fabric only" << endl;
+}
