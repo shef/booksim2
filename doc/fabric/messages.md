@@ -64,7 +64,11 @@ messages.
   cycles with links 40% busy, against 20,972 with a window of 512. Set it
   to cover the bandwidth-delay product (rate per endpoint x round trip):
   there, 384 to 1,024 packets gave the same time, and collapse returned
-  past about 1,500. 0 (the default) means no limit.
+  past about 1,500. The round trip grows with the slice, so the right value
+  does too: at 1,024 chips (8x8x16 torus, Boardfly) 512 packets throttled a
+  2 MB all-to-all by 13-24%, while 1,024 and 2,048 matched the unlimited
+  run (which, at about 1,300 packets per chip, was too short to collapse).
+  Check a value by doubling it. 0 (the default) means no limit.
 - **Pipelining** is the generator's choice: a step that forwards data as it
   arrives is several smaller messages (chunks), each depending on the
   matching incoming chunk.
