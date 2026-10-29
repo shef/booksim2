@@ -204,6 +204,7 @@ it forwards. A new system only needs its group lists.
 | `msg-rings` | bidirectional ring over up to K edge-disjoint Hamiltonian cycles of a topology |
 | `msg-ring` | bidirectional logical ring over the endpoints in order, routed by the fabric (for switched fabrics) |
 | `msg-innet` | in-network all-reduce: each chip streams 1/K of its data to each of K compute-terminal engines (`--engines`), which stream the reduced result back (`stream=`) |
+| `msg-bcast` | broadcast from one endpoint: `unicast` (every copy from the root; an upper bound, since BookSim has no multicast), `relay` (through compute-terminal engines, as switch multicast) or `tree` (endpoints relay down a binary tree as data arrives) |
 | `msg-tree` | tree all-reduce: the whole buffer reduced up a binary tree and broadcast down, chunk by chunk; `--double` uses two complementary trees with half each (NCCL's double binary tree); about 2 log2 N steps instead of 2(N-1), for latency-bound sizes and switched fabrics |
 
 `--bytes S` is the buffer per chip, as in NCCL. `--chunks C` makes C
@@ -241,6 +242,12 @@ cycles):
 
 Without `fabric_eject_any` the all-to-all took 7,084 cycles: incast into
 each chip used only part of its four ejection ports.
+
+Broadcast of 1.6 MB from one chip to the other seven (`--multipath`):
+every copy from the root 14,109 cycles; relayed by the switches' compute
+terminals 2,372 (the root sends the data once); relayed down a binary tree
+of chips 6,172. Modelling multicast as unicast would overstate its cost
+about six times here.
 
 ## In-network and near-network compute (design)
 

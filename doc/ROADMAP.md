@@ -51,10 +51,11 @@ ignores `injection_rate`, so it always runs overloaded.
       ejection port (all-to-all on an 8-chip Clos: 7,084 -> 2,388 cycles).
       Open: ring all-reduce is slower with `fabric_eject_any` (9,359 vs
       7,256); rings on a Clos need multipath routing (section 4).
-- [ ] Multicast by relay replication: copies made at compute terminals,
-      forwarded packet by packet with `stream=`; compared against unicast
-      emulation (the source sends N copies, an upper bound). BookSim has no
-      multicast: every packet has one destination.
+- [x] Multicast by relay replication (`msg-bcast --mode relay`, test
+      `fabric_multicast_relay`): copies made at compute terminals, forwarded
+      packet by packet with `stream=`. On an 8-chip Clos it is about six
+      times cheaper than unicast emulation (the root sends every copy),
+      which is the upper bound BookSim alone gives.
 - [ ] Native router multicast (a flit with a destination set, replicated at
       routers), only if results fall between the two bounds above and the
       gap matters: router changes for multi-output allocation and buffer

@@ -666,6 +666,21 @@ def fabric_multipath():
     assert times["--multipath"] < 0.35 * times[""], times
 
 
+def fabric_multicast_relay():
+    """Multicast by relay: broadcasting from one chip of an 8-chip, 4-switch
+    Clos through the switches' compute terminals sends the data once, about
+    (N - 1) / 1 times less than sending every copy from the root."""
+    d = os.path.join(TMP, "clos_bcast")
+    exporter("clos.py", d, "--chips", "8", "--switches", "4", "--compute", "8", "--multipath")
+    big = ["num_vcs=4", "vc_buf_size=512", "fabric_eject_any=1"]
+    t = {}
+    for mode in ("unicast", "relay"):
+        exporter("collectives.py", "msg-bcast", f"{d}/msgs.txt", "--bytes", "1600000",
+                 "--endpoints", "8", "--mode", mode, "--engines", "8,9,10,11")
+        t[mode], _, _ = _messages(d, big)
+    assert t["relay"] < t["unicast"] / 4, t
+
+
 TESTS = [make_upstream_test(c) for c in UPSTREAM] + [
     fabric_latency_per_hop, fabric_dor_torus_hops, fabric_src_torus_fixture,
     fabric_switched_terminals, fabric_groupshift, fabric_matrix_errors, fabric_port_gap_error,
@@ -676,6 +691,7 @@ TESTS = [make_upstream_test(c) for c in UPSTREAM] + [
     fabric_link_rates, fabric_stats_json, utils_harness,
     fabric_link_util, fabric_messages_stream,
     fabric_compute_terminals, fabric_eject_any, fabric_multipath,
+    fabric_multicast_relay,
 ] + [make_smoke_test(r, x) for r, x in (("lduato", []), ("duato", []), ("updown", []),
                                         ("esc", []), ("ugal", ["ugal_threshold=128"]))]
 

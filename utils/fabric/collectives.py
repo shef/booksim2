@@ -43,6 +43,10 @@ all-to-all where each chip sends S / N to every other chip.
   msg-innet          in-network all-reduce: chips stream 1/K of the data to
                      each of K compute-terminal engines (--engines R,R,...,
                      written cR), which stream the reduced result back
+  msg-bcast          broadcast from the first endpoint: --mode unicast (every
+                     copy from the root), relay (through compute-terminal
+                     engines, --engines, as switch multicast) or tree
+                     (endpoints relay down a binary tree as data arrives)
   msg-tree           tree all-reduce over the endpoints: the whole buffer is
                      reduced up a binary tree and broadcast back down, chunk
                      by chunk (use --chunks to pipeline); --double splits it
@@ -60,6 +64,8 @@ usage: collectives.py torus-rings OUT [--dims X Y Z] [--twisted]
        collectives.py msg-rings OUT TOPO_FILE --bytes S [--k K] [COMMON]
        collectives.py msg-ring OUT --bytes S (--endpoints N | --topo TOPO_FILE) [COMMON]
        collectives.py msg-innet OUT --bytes S --endpoints N --engines R,R,... [COMMON]
+       collectives.py msg-bcast OUT --bytes S --endpoints N [--mode unicast|relay|tree]
+                      [--engines R,R,...]
        collectives.py msg-tree OUT --bytes S (--endpoints N | --topo TOPO_FILE)
                       [--double] [COMMON]
          COMMON: [--chunks C] [--reduce-gbps R]
@@ -358,6 +364,36 @@ def msg_innet(sch, chips, engines, nbytes, reduce_gbps=0):
             sch.add(e, c, nbytes / k, delay=delay, tag="innet.down", stream=ups)
 
 
+def msg_bcast(sch, endpoints, nbytes, mode="unicast", engines=(), root=None):
+    """Broadcast nbytes from root (default the first endpoint) to the others.
+    unicast: the root sends every copy itself (BookSim has no multicast; an
+             upper bound on cost).
+    relay:   the root sends 1/K to each of K engines (compute terminals,
+             "cR"), which replicate it to every endpoint as it streams in, as
+             switch multicast does.
+    tree:    endpoints relay down a binary tree, each forwarding as data
+             arrives (stream=), as software multicast does."""
+    root = endpoints[0] if root is None else root
+    others = [e for e in endpoints if e != root]
+    if mode == "unicast":
+        for d in others:
+            sch.add(root, d, nbytes, tag="bcast")
+    elif mode == "relay":
+        k = len(engines)
+        for e in engines:
+            up = sch.add(root, e, nbytes / k, tag="bcast.up")
+            for d in others:
+                sch.add(e, d, nbytes / k, tag="bcast.down", stream=[up])
+    else:
+        order = [root] + others
+        parent = binary_tree(order)
+        got = {}
+        for i, m in enumerate(order[1:], 1):     # heap order: parents come first
+            p = parent[m]
+            got[m] = sch.add(p, m, nbytes, tag="bcast.tree",
+                             stream=[got[p]] if p in got else [])
+
+
 def endpoints_of(topo):
     """Routers with terminals in a topology file (all, unless `t R 0`)."""
     with open(topo) as f:
@@ -385,21 +421,24 @@ def main():
     r.add_argument("--k", type=int, default=3)
     m = {}
     for name in ("msg-alltoall", "msg-torus", "msg-boardfly", "msg-rings", "msg-tree",
-                 "msg-ring", "msg-innet"):
+                 "msg-ring", "msg-innet", "msg-bcast"):
         m[name] = sub.add_parser(name)
         m[name].add_argument("out")
         if name == "msg-rings":
             m[name].add_argument("topo")
             m[name].add_argument("--k", type=int, default=3)
         m[name].add_argument("--bytes", type=float, required=True)
-        if name != "msg-alltoall":
+        if name not in ("msg-alltoall", "msg-bcast"):
             m[name].add_argument("--chunks", type=int, default=1)
             m[name].add_argument("--reduce-gbps", type=float, default=0)
-    for name in ("msg-alltoall", "msg-tree", "msg-ring", "msg-innet"):
+    for name in ("msg-alltoall", "msg-tree", "msg-ring", "msg-innet", "msg-bcast"):
         m[name].add_argument("--endpoints", type=int)
         m[name].add_argument("--topo")
     m["msg-innet"].add_argument("--engines", required=True,
                                 help="routers whose compute terminals reduce, e.g. 8,9,10,11")
+    m["msg-bcast"].add_argument("--mode", choices=["unicast", "relay", "tree"], default="unicast")
+    m["msg-bcast"].add_argument("--engines", default="",
+                                help="relay mode: routers whose compute terminals replicate")
     m["msg-tree"].add_argument("--double", action="store_true")
     m["msg-torus"].add_argument("--dims", type=int, nargs=3, default=[8, 8, 16])
     m["msg-boardfly"].add_argument("--groups", type=int, default=32)
@@ -417,6 +456,13 @@ def main():
             eps = endpoints_of(a.topo) if a.topo else list(range(a.endpoints))
             engines = [f"c{r}" for r in a.engines.split(",")]
             sch = chunked(msg_innet, a.chunks, a.bytes, eps, engines, reduce_gbps=a.reduce_gbps)
+        elif a.cmd == "msg-bcast":
+            eps = endpoints_of(a.topo) if a.topo else list(range(a.endpoints))
+            engines = [f"c{r}" for r in a.engines.split(",") if r]
+            if a.mode == "relay" and not engines:
+                ap.error("--mode relay needs --engines")
+            sch = Schedule()
+            msg_bcast(sch, eps, a.bytes, a.mode, engines)
         elif a.cmd == "msg-tree":
             eps = endpoints_of(a.topo) if a.topo else list(range(a.endpoints))
             sch = chunked(msg_trees, a.chunks, a.bytes, eps, double=a.double,
