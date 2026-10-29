@@ -71,6 +71,11 @@ TrafficManager::TrafficManager( const Configuration &config, const vector<Networ
 {
 
     _nodes = _net[0]->NumNodes( );
+    _term_rate.resize(_nodes);
+    for (int n = 0; n < _nodes; ++n) {
+        _term_rate[n] = _net[0]->TerminalRate(n);
+    }
+    _term_tokens.assign(_nodes, 1.0);
     _routers = _net[0]->NumRouters( );
     gMeasureReorder = config.GetInt("measure_reorder") != 0;
 
@@ -1098,11 +1103,23 @@ void TrafficManager::_Step( )
         _Inject();
     }
 
+    // Injection caps: earn rate tokens per cycle (banking at most one flit
+    // beyond the current one), spend one per injected flit.
+    for(int n = 0; n < _nodes; ++n) {
+        if(_term_rate[n] < 1.0) {
+            _term_tokens[n] = min(1.0 + _term_rate[n], _term_tokens[n] + _term_rate[n]);
+        }
+    }
+
     for(int subnet = 0; subnet < _subnets; ++subnet) {
 
         for(int n = 0; n < _nodes; ++n) {
 
             Flit * f = NULL;
+
+            if(_term_rate[n] < 1.0 && _term_tokens[n] < 1.0 - 1e-9) {
+                continue;
+            }
 
             BufferState * const dest_buf = _buf_states[n][subnet];
 
@@ -1321,6 +1338,9 @@ void TrafficManager::_Step( )
 #endif
 	
                 _net[subnet]->WriteFlit(f, n);
+                if(_term_rate[n] < 1.0) {
+                    _term_tokens[n] -= 1.0;
+                }
 	
             }
         }

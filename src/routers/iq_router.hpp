@@ -95,6 +95,11 @@ class IQRouter : public Router {
   int _output_buffer_size;
   vector<queue<Flit *> > _output_buffer;
 
+  // Link rates below 1 (fabric): a token bucket per output, and a small
+  // output buffer so a slow link backs up through credits.
+  vector<double> _out_rate, _out_tokens;
+  bool _OutputHasRoom( int output ) const;
+
   vector<queue<Credit *> > _credit_buffer;
 
   bool _hold_switch_for_packet;
@@ -149,6 +154,7 @@ class IQRouter : public Router {
   BufferMonitor * _bufferMonitor ;
   
 public:
+  virtual void SetOutputRate( int output, double rate );
 
   IQRouter( Configuration const & config,
 	    Module *parent, string const & name, int id,

@@ -160,6 +160,8 @@ IQRouter::IQRouter( Configuration const & config, Module *parent,
   // Output queues
   _output_buffer_size = config.GetInt("output_buffer_size");
   _output_buffer.resize(_outputs); 
+  _out_rate.assign(_outputs, 1.0);
+  _out_tokens.assign(_outputs, 1.0);
   _credit_buffer.resize(_inputs); 
 
   // Switch configuration (when held for multiple cycles)
@@ -1044,7 +1046,7 @@ void IQRouter::_SWHoldUpdate( )
     
     int const expanded_output = item.second.second;
     
-    if(expanded_output >= 0 && ( _output_buffer_size==-1 || _output_buffer[expanded_output/_output_speedup].size()<size_t(_output_buffer_size))) {
+    if(expanded_output >= 0 && _OutputHasRoom(expanded_output/_output_speedup)) {
       
       assert(_switch_hold_in[expanded_input] == expanded_output);
       assert(_switch_hold_out[expanded_output] == expanded_input);
@@ -1193,7 +1195,7 @@ void IQRouter::_SWHoldUpdate( )
     } else {
       //when internal speedup >1.0, the buffer stall stats may not be accruate
       assert((expanded_output == STALL_BUFFER_FULL) ||
-	     (expanded_output == STALL_BUFFER_RESERVED) || !( _output_buffer_size==-1 || _output_buffer[expanded_output/_output_speedup].size()<size_t(_output_buffer_size)));
+	     (expanded_output == STALL_BUFFER_RESERVED) || !_OutputHasRoom(expanded_output/_output_speedup));
 
       int const held_expanded_output = _switch_hold_in[expanded_input];
       assert(held_expanded_output >= 0);
@@ -1372,7 +1374,7 @@ void IQRouter::_SWAllocEvaluate( )
       
       BufferState const * const dest_buf = _next_buf[dest_output];
       
-      if(dest_buf->IsFullFor(dest_vc) || ( _output_buffer_size!=-1  && _output_buffer[dest_output].size()>=(size_t)(_output_buffer_size))) {
+      if(dest_buf->IsFullFor(dest_vc) || !_OutputHasRoom(dest_output)) {
 	if(f->watch) {
 	  *gWatchOut << GetSimTime() << " | " << FullName() << " | "
 		     << "  VC " << dest_vc 
@@ -1439,7 +1441,7 @@ void IQRouter::_SWAllocEvaluate( )
 	for(int dest_vc = vc_start; dest_vc <= vc_end; ++dest_vc) {
 	  assert((dest_vc >= 0) && (dest_vc < _vcs));
 	  
-	  if(dest_buf->IsAvailableFor(dest_vc) && ( _output_buffer_size==-1 || _output_buffer[dest_output].size()<(size_t)(_output_buffer_size))) {
+	  if(dest_buf->IsAvailableFor(dest_vc) && _OutputHasRoom(dest_output)) {
 	    elig = true;
 	    if(!_spec_check_cred || !dest_buf->IsFullFor(dest_vc)) {
 	      cred = true;
@@ -2204,7 +2206,7 @@ void IQRouter::_SwitchUpdate( )
     _output_buffer[output].push(f);
     //the output buffer size isn't precise due to flits in flight
     //but there is a maximum bound based on output speed up and ST traversal
-    assert(_output_buffer[output].size()<=(size_t)_output_buffer_size+ _crossbar_delay* _output_speedup+( _output_speedup-1) ||_output_buffer_size==-1);
+    assert(_output_buffer[output].size()<=(size_t)_output_buffer_size+ _crossbar_delay* _output_speedup+( _output_speedup-1) ||_output_buffer_size==-1 || _out_rate[output] < 1.0);
     _crossbar_flits.pop_front();
   }
 }
@@ -2236,9 +2238,43 @@ void IQRouter::_OutputQueuing( )
 // write outputs
 //------------------------------------------------------------------------------
 
+// Output buffer room: the configured size, or for a link slower than one
+// flit per cycle a few flits, so the slow link holds back the switch.
+bool IQRouter::_OutputHasRoom( int output ) const
+{
+  int cap = _output_buffer_size;
+  if ( _out_rate[output] < 1.0 && ( cap == -1 || cap > 4 ) ) {
+    cap = 4;
+  }
+  return cap == -1 || _output_buffer[output].size( ) < (size_t)cap;
+}
+
+void IQRouter::SetOutputRate( int output, double rate )
+{
+  assert( output >= 0 && output < _outputs );
+  if ( !( rate > 0.0 && rate <= 1.0 ) ) {
+    Error( "link rate must be in (0, 1] flits per cycle" );
+  }
+  _out_rate[output] = rate;
+  _out_tokens[output] = 1.0;
+}
+
 void IQRouter::_SendFlits( )
 {
   for ( int output = 0; output < _outputs; ++output ) {
+    if ( _out_rate[output] < 1.0 ) {
+      // earn rate tokens per cycle and spend one per flit; an idle link
+      // banks at most one, so it cannot burst
+      _out_tokens[output] += _out_rate[output];
+      if ( _output_buffer[output].empty( ) ) {
+        _out_tokens[output] = min(1.0, _out_tokens[output]);
+        continue;
+      }
+      if ( _out_tokens[output] < 1.0 - 1e-9 ) {
+        continue;
+      }
+      _out_tokens[output] -= 1.0;
+    }
     if ( !_output_buffer[output].empty( ) ) {
       Flit * const f = _output_buffer[output].front( );
       assert(f);

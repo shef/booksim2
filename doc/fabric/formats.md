@@ -22,8 +22,18 @@ The router count, then one record per line; `#` starts a comment.
 ```
 4                     # routers
 t 3 0                 # router 3 has no terminals (a switch)
+t 2 4 0.25            # router 2 has 4 terminals, each limited to 0.25 flits/cycle
 0 1 3 1 0 10          # U PORT_U V PORT_V KIND LATENCY: a bidirectional link
+0 2 2 1 2 1080 0.125  # ... with an optional RATE in flits per cycle each way
 ```
+
+Rates (optional, `0 < RATE <= 1`, default 1) model links slower than the
+fabric's flit-per-cycle base rate, such as PCIe or NIC links beside ICI,
+older generations, or links running at reduced width; a terminal rate caps
+how fast that router's terminals inject and eject (DMA engines, host
+links). A link with a rate sends a flit when it has earned a whole one at
+that rate (a token bucket), and keeps a small output buffer so it backs up
+through credits like any congested link. Rates need `router = iq`.
 
 Link ports are numbered from 1 on each router, without gaps (port 0 in the
 files means "this router's terminals"). On the router they sit after the

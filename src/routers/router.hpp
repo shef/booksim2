@@ -101,6 +101,9 @@ public:
 
   virtual void AddInputChannel( FlitChannel *channel, CreditChannel *backchannel );
   virtual void AddOutputChannel( FlitChannel *channel, CreditChannel *backchannel );
+  // Flits per cycle an output may send (0 < rate <= 1; fabric link rates).
+  // Only routers that implement it accept a rate below 1.
+  virtual void SetOutputRate( int output, double rate );
  
   inline FlitChannel * GetInputChannel( int input ) const {
     assert((input >= 0) && (input < _inputs));

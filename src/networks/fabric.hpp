@@ -70,6 +70,7 @@ class Fabric : public Network {
 
 public:
   Fabric(const Configuration &config, const std::string &name);
+  virtual double TerminalRate(int node) const;
   static void RegisterRoutingFunctions();
 };
 

@@ -2,14 +2,18 @@
 
 
 def write_topology(path, routers, links, terminals=None):
-    """links: (u, port_u, v, port_v, kind, latency) with link ports from 1;
-    terminals: optional {router: count} overriding fabric_terminals."""
+    """links: (u, port_u, v, port_v, kind, latency[, rate]) with link ports
+    from 1; terminals: optional {router: count or (count, rate)} overriding
+    fabric_terminals. Rates are flits per cycle, written only when below 1."""
     with open(path, "w") as f:
         f.write(f"{routers}\n")
         for r, n in sorted((terminals or {}).items()):
-            f.write(f"t {r} {n}\n")
-        for u, pu, v, pv, kind, lat in links:
-            f.write(f"{u} {pu} {v} {pv} {kind} {lat}\n")
+            n, rate = n if isinstance(n, tuple) else (n, 1)
+            f.write(f"t {r} {n}" + (f" {rate:g}" if rate < 1 else "") + "\n")
+        for l in links:
+            u, pu, v, pv, kind, lat = l[:6]
+            rate = l[6] if len(l) > 6 else 1
+            f.write(f"{u} {pu} {v} {pv} {kind} {lat}" + (f" {rate:g}" if rate < 1 else "") + "\n")
 
 
 def write_tables(path, rows, arrdown):

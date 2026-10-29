@@ -273,6 +273,9 @@ protected:
   // Size and destination of the packet _GeneratePacket is creating (normal
   // mode; read/write replies keep their own). The destination is asked
   // after the packet id is assigned, so _cur_pid - 1 is that packet's id.
+  // Injection caps per node (network TerminalRate): a token bucket.
+  vector<double> _term_rate, _term_tokens;
+
   virtual int  _PacketSize( int source, int cl );
   virtual int  _PacketDestination( int source, int cl );
   void _GeneratePacket( int source, int size, int cl, int time );

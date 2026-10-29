@@ -153,3 +153,10 @@ Router *Router::NewRouter( const Configuration& config,
 
 
 
+
+void Router::SetOutputRate( int output, double rate )
+{
+  if ( rate != 1.0 ) {
+    Error( "this router type does not support link rates below 1" );
+  }
+}

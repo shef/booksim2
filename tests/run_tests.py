@@ -486,6 +486,36 @@ def fabric_messages_ring_allreduce():
     assert "Message tag ag0.6" in out
 
 
+def fabric_link_rates():
+    """A link rate below 1 (topology file's optional last field) slows that
+    link: an 800-flit message over a half-rate hop takes twice the
+    serialization, over a quarter-rate hop four times; terminal rates
+    (`t R N RATE`) cap injection at the source and ejection at the
+    destination the same way; a bad rate is refused."""
+    paths = "0 1 1 1 0\n1 0 1 1 0\n0 2 2 1 0 2 0\n2 0 2 1 0 1 0\n1 2 1 2 0\n2 1 1 1 0\n"
+    times = {}
+    for rate in ("", " 0.5", " 0.25", " 0.3"):
+        d = _write(os.path.join(TMP, f"rate{rate.strip() or '1'}"),
+                   topo=f"3\n0 1 1 1 0 10\n1 2 2 1 0 10{rate}\n", paths=paths,
+                   msgs="0 0 2 160000\n")
+        times[rate.strip() or "1"], _, _ = _messages(d)
+    ser = {r: times[r] - (times["1"] - 800) for r in times}   # minus latency
+    assert abs(ser["0.5"] / 800 - 2) < 0.05, times
+    assert abs(ser["0.25"] / 800 - 4) < 0.05, times
+    assert abs(ser["0.3"] / 800 - 1 / 0.3) < 0.05, times     # rates that do not divide 1
+    for name, t in (("inject", "t 0 1 0.5\n"), ("eject", "t 2 1 0.25\n")):
+        d = _write(os.path.join(TMP, f"rate_{name}"),
+                   topo=f"3\n{t}0 1 1 1 0 10\n1 2 2 1 0 10\n", paths=paths,
+                   msgs="0 0 2 160000\n")
+        t_cap, _, _ = _messages(d)
+        want = 2 if name == "inject" else 4
+        assert abs((t_cap - (times["1"] - 800)) / 800 - want) < 0.05, (name, t_cap, times)
+    d = _write(os.path.join(TMP, "rate_bad"), topo="3\n0 1 1 1 0 10\n1 2 2 1 0 10 1.5\n",
+               paths=paths, msgs="0 0 2 200\n")
+    code, out = _messages(d, check=False)
+    assert code != 0 and "link rate" in out, out[-500:]
+
+
 TESTS = [make_upstream_test(c) for c in UPSTREAM] + [
     fabric_latency_per_hop, fabric_dor_torus_hops, fabric_src_torus_fixture,
     fabric_switched_terminals, fabric_groupshift, fabric_matrix_errors, fabric_port_gap_error,
@@ -493,6 +523,7 @@ TESTS = [make_upstream_test(c) for c in UPSTREAM] + [
     utils_cdgcheck, utils_torus_twisted_hops, fabric_batch_paced,
     fabric_messages_basic, fabric_messages_endpoints, fabric_messages_stall,
     utils_collective_messages, fabric_messages_ring_allreduce,
+    fabric_link_rates,
 ] + [make_smoke_test(r, x) for r, x in (("lduato", []), ("duato", []), ("updown", []),
                                         ("esc", []), ("ugal", ["ugal_threshold=128"]))]
 

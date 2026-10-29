@@ -89,6 +89,8 @@ public:
   void OutChannelFault( int r, int c, bool fault = true );
 
   virtual double Capacity( ) const;
+  // Flits per cycle a node's terminal may inject (fabric endpoint caps).
+  virtual double TerminalRate( int node ) const { return 1.0; }
 
   virtual void ReadInputs( );
   virtual void Evaluate( );

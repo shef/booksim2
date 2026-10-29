@@ -58,6 +58,7 @@ int gRouters = 0;
 std::vector<int> gTerms;       // [router] terminal count
 std::vector<int> gFirstNode;   // [router] first node id
 std::vector<int> gNodeRouter;  // [node] router
+std::vector<double> gTermRate; // [router] terminal rate, flits per cycle
 std::vector<std::vector<int> > gPortKind;  // [router][link port] kind
 std::vector<unsigned long long> gArrDown;  // [router] bit p: arriving on p was a down hop
 std::vector<Entry> gTable;                 // [router * R + dest router]
@@ -321,12 +322,17 @@ namespace {
 
 // Topology file: the router count, then one record per line ('#' starts a
 // comment):
-//   t ROUTER TERMINALS                 terminal count for one router
-//   U PORT_U V PORT_V KIND LATENCY     a bidirectional link
-struct Link { int u, pu, v, pv, kind, lat; };
+//   t ROUTER TERMINALS [RATE]          terminal count for one router, and
+//                                      optionally each terminal's injection
+//                                      and ejection rate (0 < RATE <= 1)
+//   U PORT_U V PORT_V KIND LATENCY [RATE]
+//                                      a bidirectional link; RATE in flits
+//                                      per cycle each way, 0 < RATE <= 1
+struct Link { int u, pu, v, pv, kind, lat; double rate; };
 
 void ReadTopology(const std::string &file, int default_terms, int *routers,
-                  std::vector<int> *terms, std::vector<Link> *links) {
+                  std::vector<int> *terms, std::vector<Link> *links,
+                  std::vector<double> *term_rate = NULL) {
   std::ifstream in(file.c_str());
   if (!in) {
     std::cerr << "fabric: cannot open network_file " << file << std::endl;
@@ -343,16 +349,30 @@ void ReadTopology(const std::string &file, int default_terms, int *routers,
       *routers = atoi(first.c_str());
       assert(*routers > 0);
       terms->assign(*routers, default_terms);
+      if (term_rate) term_rate->assign(*routers, 1.0);
     } else if (first == "t") {
       int r, n;
       ss >> r >> n;
       assert(ss && r >= 0 && r < *routers && n >= 0);
       (*terms)[r] = n;
+      double rate;
+      if (ss >> rate) {
+        if (!(rate > 0.0 && rate <= 1.0)) {
+          std::cerr << "fabric: terminal rate must be in (0, 1]: " << line << std::endl;
+          exit(-1);
+        }
+        if (term_rate) (*term_rate)[r] = rate;
+      }
     } else {
       Link l;
       l.u = atoi(first.c_str());
       ss >> l.pu >> l.v >> l.pv >> l.kind >> l.lat;
       assert(ss && l.u >= 0 && l.u < *routers && l.v >= 0 && l.v < *routers);
+      if (!(ss >> l.rate)) l.rate = 1.0;
+      if (!(l.rate > 0.0 && l.rate <= 1.0)) {
+        std::cerr << "fabric: link rate must be in (0, 1]: " << line << std::endl;
+        exit(-1);
+      }
       assert(l.pu >= 1 && l.pu < kMaxLinkPorts && l.pv >= 1 && l.pv < kMaxLinkPorts);
       links->push_back(l);
     }
@@ -364,7 +384,8 @@ void ReadTopology(const std::string &file, int default_terms, int *routers,
 void Fabric::_ComputeSize(const Configuration &config) {
   _topo_file = config.GetStr("network_file");
   std::vector<Link> links;
-  ReadTopology(_topo_file, config.GetInt("fabric_terminals"), &gRouters, &gTerms, &links);
+  ReadTopology(_topo_file, config.GetInt("fabric_terminals"), &gRouters, &gTerms, &links,
+               &gTermRate);
   gFirstNode.assign(gRouters, 0);
   gNodeRouter.clear();
   for (int r = 0; r < gRouters; ++r) {
@@ -377,19 +398,23 @@ void Fabric::_ComputeSize(const Configuration &config) {
   assert(_nodes > 0);
 }
 
+double Fabric::TerminalRate(int node) const {
+  return gTermRate.empty() ? 1.0 : gTermRate[gNodeRouter[node]];
+}
+
 void FabricTerminals(std::vector<int> *first, std::vector<int> *count) {
   *first = gFirstNode;
   *count = gTerms;
 }
 
 void Fabric::_BuildNet(const Configuration &config) {
-  struct End { int chan_out, chan_in, kind; };
+  struct End { int chan_out, chan_in, kind; double rate; };
   int routers;
   std::vector<int> terms;
   std::vector<Link> links;
   ReadTopology(_topo_file, config.GetInt("fabric_terminals"), &routers, &terms, &links);
 
-  std::vector<std::vector<End> > ports(_size, std::vector<End>(1, End{-1, -1, kNone}));
+  std::vector<std::vector<End> > ports(_size, std::vector<End>(1, End{-1, -1, kNone, 1.0}));
   for (size_t i = 0; i < links.size(); ++i) {
     const Link &l = links[i];
     int c_uv = 2 * i, c_vu = 2 * i + 1;
@@ -397,11 +422,11 @@ void Fabric::_BuildNet(const Configuration &config) {
     _chan_cred[c_uv]->SetLatency(l.lat);
     _chan[c_vu]->SetLatency(l.lat);
     _chan_cred[c_vu]->SetLatency(l.lat);
-    if ((int)ports[l.u].size() <= l.pu) ports[l.u].resize(l.pu + 1, End{-1, -1, kNone});
-    if ((int)ports[l.v].size() <= l.pv) ports[l.v].resize(l.pv + 1, End{-1, -1, kNone});
+    if ((int)ports[l.u].size() <= l.pu) ports[l.u].resize(l.pu + 1, End{-1, -1, kNone, 1.0});
+    if ((int)ports[l.v].size() <= l.pv) ports[l.v].resize(l.pv + 1, End{-1, -1, kNone, 1.0});
     assert(ports[l.u][l.pu].chan_out < 0 && ports[l.v][l.pv].chan_out < 0);
-    ports[l.u][l.pu] = End{c_uv, c_vu, l.kind};
-    ports[l.v][l.pv] = End{c_vu, c_uv, l.kind};
+    ports[l.u][l.pu] = End{c_uv, c_vu, l.kind, l.rate};
+    ports[l.v][l.pv] = End{c_vu, c_uv, l.kind, l.rate};
   }
 
   gPortKind.assign(_size, std::vector<int>());
@@ -416,6 +441,7 @@ void Fabric::_BuildNet(const Configuration &config) {
       int n = gFirstNode[r] + t;
       _routers[r]->AddInputChannel(_inject[n], _inject_cred[n]);
       _routers[r]->AddOutputChannel(_eject[n], _eject_cred[n]);
+      if (gTermRate[r] < 1.0) _routers[r]->SetOutputRate(t, gTermRate[r]);
     }
     gPortKind[r].push_back(kNone);
     for (int p = 1; p <= nlinks; ++p) {
@@ -426,6 +452,7 @@ void Fabric::_BuildNet(const Configuration &config) {
       }
       _routers[r]->AddOutputChannel(_chan[ports[r][p].chan_out], _chan_cred[ports[r][p].chan_out]);
       _routers[r]->AddInputChannel(_chan[ports[r][p].chan_in], _chan_cred[ports[r][p].chan_in]);
+      if (ports[r][p].rate < 1.0) _routers[r]->SetOutputRate(gTerms[r] + p - 1, ports[r][p].rate);
       gPortKind[r].push_back(ports[r][p].kind);
     }
   }

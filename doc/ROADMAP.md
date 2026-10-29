@@ -98,12 +98,12 @@ long collectives are simulated for a few steady steps and extrapolated.
 
 Gaps that matter once systems differ, most important first.
 
-- [ ] Mixed link and endpoint rates (first: everything below needs it):
-      a per-link rate in the topology file (a link carries a flit every
-      1/rate cycles), and per-endpoint injection and ejection caps (DMA
-      engines, HBM). Scale-up and scale-out links, generations at different
-      rates, half-width links after lane failures, die-to-die links. BookSim
-      moves one flit per cycle on every channel today.
+- [x] Mixed link and endpoint rates: an optional RATE per link and per
+      router's terminals in the topology file (formats.md), a token bucket
+      per router output and per injecting terminal (test
+      `fabric_link_rates`). For scale-up and scale-out links side by side,
+      generations at different rates, reduced-width links, die-to-die links,
+      DMA or host-limited endpoints.
 - [ ] Multi-die chips: a chip as several routers (one per die or chiplet)
       joined by die-to-die links, with ICI ports, PCIe and HBM attached to
       specific dies (Ironwood's two compute dies; TPU 8i's two compute
