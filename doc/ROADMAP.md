@@ -145,10 +145,10 @@ Gaps that matter once systems differ, most important first.
 - [ ] Realistic workloads: MoE all-to-all with uneven sizes (done:
       `msg-moe` with Zipf-skewed experts, test `utils_moe_messages`; skew 2
       makes an 8-chip Clos dispatch 4.8x slower than uniform),
-      pipeline-parallel point-to-point, inference traffic for TPU 8i (small
-      latency-bound messages, decode steps, KV-cache moves), and a simple
-      compute model so communication can overlap compute (with Chakra
-      import, section 1).
+      pipeline-parallel point-to-point (done: `msg-pipeline`), chains of
+      small collectives as in decode (done: `--repeat`), KV-cache moves for
+      TPU 8i inference, and a compute model so communication can overlap
+      compute (with Chakra import, section 1).
 - [ ] Scale-out across slices: hierarchical collectives over the datacenter
       network between slices, likely in the flow-level model (section 5)
       rather than BookSim.

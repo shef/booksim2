@@ -729,6 +729,33 @@ def utils_moe_messages():
     assert t["2"] > 2 * t["0"], t
 
 
+def utils_repeat_pipeline():
+    """--repeat chains collectives (each chip's next one waits for what it
+    received in the previous): four small all-reduces take about four times
+    one. msg-pipeline writes stages x microbatches forward and backward
+    messages whose dependencies name earlier messages."""
+    d = os.path.join(TMP, "clos_rep")
+    exporter("clos.py", d, "--chips", "8", "--switches", "4", "--compute", "8", "--multipath")
+    big = ["num_vcs=4", "vc_buf_size=512", "fabric_eject_any=1"]
+    t = {}
+    for r in ("1", "4"):
+        exporter("collectives.py", "msg-innet", f"{d}/msgs.txt", "--bytes", "16000",
+                 "--endpoints", "8", "--engines", "8,9,10,11", "--repeat", r)
+        t[r], _, _ = _messages(d, big)
+    assert 3.6 < t["4"] / t["1"] < 4.4, t
+    out = os.path.join(TMP, "pp.txt")
+    exporter("collectives.py", "msg-pipeline", out, "--bytes", "1000", "--endpoints", "8",
+             "--stages", "4", "--microbatches", "3")
+    lines = [l.split() for l in open(out) if not l.startswith("#")]
+    assert len(lines) == 3 * 2 * 3 * 2, len(lines)              # boundaries x chips x mb x dir
+    seen = set()
+    for l in lines:
+        for x in l[4:]:
+            if x.startswith("after="):
+                assert all(int(i) in seen for i in x[6:].split(",")), l
+        seen.add(int(l[0]))
+
+
 TESTS = [make_upstream_test(c) for c in UPSTREAM] + [
     fabric_latency_per_hop, fabric_dor_torus_hops, fabric_src_torus_fixture,
     fabric_switched_terminals, fabric_groupshift, fabric_matrix_errors, fabric_port_gap_error,
@@ -740,7 +767,7 @@ TESTS = [make_upstream_test(c) for c in UPSTREAM] + [
     fabric_link_util, fabric_messages_stream,
     fabric_compute_terminals, fabric_eject_any, fabric_multipath,
     fabric_multicast_relay, utils_viewer_scenes,
-    utils_moe_messages,
+    utils_moe_messages, utils_repeat_pipeline,
 ] + [make_smoke_test(r, x) for r, x in (("lduato", []), ("duato", []), ("updown", []),
                                         ("esc", []), ("ugal", ["ugal_threshold=128"]))]
 

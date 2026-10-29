@@ -51,13 +51,18 @@ all-to-all where each chip sends S / N to every other chip.
                      experts spread over the endpoints (--experts-per-chip),
                      weighted by Zipf popularity (--skew; 0 = uniform);
                      --combine adds the return trip
+  msg-pipeline       pipeline parallel (GPipe): --stages P groups of the
+                     endpoints in order; activations of --microbatches M flow
+                     stage to stage, then gradients back; --compute-ns per hop
   msg-tree           tree all-reduce over the endpoints: the whole buffer is
                      reduced up a binary tree and broadcast back down, chunk
                      by chunk (use --chunks to pipeline); --double splits it
                      over two complementary trees (NCCL's double binary tree)
 
   --chunks C splits the work into C independent pipelines; --reduce-gbps R
-  adds the time to reduce received data (bytes / R) before forwarding it.
+  adds the time to reduce received data (bytes / R) before forwarding it;
+  --repeat L runs L collectives back to back, each chip starting the next
+  after receiving all of the previous (inference decode: one per layer).
 
 usage: collectives.py torus-rings OUT [--dims X Y Z] [--twisted]
        collectives.py boardfly OUT [--groups G] [--stage tray|group|global|fused]
@@ -72,9 +77,11 @@ usage: collectives.py torus-rings OUT [--dims X Y Z] [--twisted]
                       [--engines R,R,...]
        collectives.py msg-moe OUT --bytes S --endpoints N [--experts-per-chip E]
                       [--skew Z] [--combine] [--seed K]
+       collectives.py msg-pipeline OUT --bytes S --endpoints N --stages P
+                      --microbatches M [--compute-ns NS]
        collectives.py msg-tree OUT --bytes S (--endpoints N | --topo TOPO_FILE)
                       [--double] [COMMON]
-         COMMON: [--chunks C] [--reduce-gbps R]
+         COMMON: [--chunks C] [--reduce-gbps R] [--repeat L]
 """
 
 import argparse
@@ -255,6 +262,29 @@ def allreduce(sch, stages, nbytes, reduce_gbps=0, prefix=""):
         frontier = _stage(sch, groups, algo, sizes[s], frontier, f"{prefix}ag{s}", 0.0)
 
 
+def repeated(sch, times):
+    """Run a schedule `times` times back to back: in each repetition after the
+    first, an endpoint's first sends (messages with no dependencies) wait
+    for everything it received in the previous repetition, as a chain of
+    collectives does (one per layer in inference decode)."""
+    if times <= 1:
+        return sch
+    out, base = Schedule(), sch.msgs
+    received = {}
+    for r in range(times):
+        off = len(out.msgs)
+        got = {}
+        for src, dst, b, deps, delay, tag, stream in base:
+            new_deps = [d + off for d in deps]
+            if not deps and not stream and r > 0:
+                new_deps = received.get(src, [])
+            i = out.add(src, dst, b, new_deps, delay, f"r{r}.{tag}" if tag else f"r{r}",
+                        [x + off for x in stream])
+            got.setdefault(dst, []).append(i)
+        received = got
+    return out
+
+
 def chunked(fn, chunks, nbytes, *args, **kw):
     """Run fn(schedule, ..., nbytes / chunks) once per chunk (independent
     pipelines sharing the network)."""
@@ -426,6 +456,29 @@ def msg_moe(sch, endpoints, nbytes, experts_per_chip=1, skew=0.0, combine=False,
                 sch.add(d, s, b, deps=[m], tag="moe.combine")
 
 
+def msg_pipeline(sch, stages, nbytes, microbatches, compute_ns=0):
+    """Pipeline parallel (GPipe): stages is a list of chip groups of equal
+    size; chip i of stage s sends each microbatch's activations (nbytes) to
+    chip i of stage s + 1 once it has received that microbatch and sent the
+    previous one, after compute_ns; then gradients flow back the same way."""
+    fwd, bwd = {}, {}
+    last = len(stages) - 1
+    for k in range(microbatches):
+        for s in range(last):
+            for i, (a, b) in enumerate(zip(stages[s], stages[s + 1])):
+                deps = [fwd[k, s - 1, i]] if s > 0 else []
+                if k > 0:
+                    deps.append(fwd[k - 1, s, i])
+                fwd[k, s, i] = sch.add(a, b, nbytes, deps, compute_ns, "pp.fwd")
+    for k in range(microbatches):
+        for s in range(last, 0, -1):
+            for i, (a, b) in enumerate(zip(stages[s], stages[s - 1])):
+                deps = [bwd[k, s + 1, i]] if s < last else [fwd[k, last - 1, i]]
+                if k > 0:
+                    deps.append(bwd[k - 1, s, i])
+                bwd[k, s, i] = sch.add(a, b, nbytes, deps, compute_ns, "pp.bwd")
+
+
 def endpoints_of(topo):
     """Routers with terminals in a topology file (all, unless `t R 0`)."""
     with open(topo) as f:
@@ -453,21 +506,26 @@ def main():
     r.add_argument("--k", type=int, default=3)
     m = {}
     for name in ("msg-alltoall", "msg-torus", "msg-boardfly", "msg-rings", "msg-tree",
-                 "msg-ring", "msg-innet", "msg-bcast", "msg-moe"):
+                 "msg-ring", "msg-innet", "msg-bcast", "msg-moe", "msg-pipeline"):
         m[name] = sub.add_parser(name)
         m[name].add_argument("out")
         if name == "msg-rings":
             m[name].add_argument("topo")
             m[name].add_argument("--k", type=int, default=3)
         m[name].add_argument("--bytes", type=float, required=True)
-        if name not in ("msg-alltoall", "msg-bcast", "msg-moe"):
+        if name not in ("msg-alltoall", "msg-bcast", "msg-moe", "msg-pipeline"):
             m[name].add_argument("--chunks", type=int, default=1)
             m[name].add_argument("--reduce-gbps", type=float, default=0)
-    for name in ("msg-alltoall", "msg-tree", "msg-ring", "msg-innet", "msg-bcast", "msg-moe"):
+        m[name].add_argument("--repeat", type=int, default=1)
+    for name in ("msg-alltoall", "msg-tree", "msg-ring", "msg-innet", "msg-bcast", "msg-moe",
+                 "msg-pipeline"):
         m[name].add_argument("--endpoints", type=int)
         m[name].add_argument("--topo")
     m["msg-innet"].add_argument("--engines", required=True,
                                 help="routers whose compute terminals reduce, e.g. 8,9,10,11")
+    m["msg-pipeline"].add_argument("--stages", type=int, required=True)
+    m["msg-pipeline"].add_argument("--microbatches", type=int, default=4)
+    m["msg-pipeline"].add_argument("--compute-ns", type=int, default=0)
     m["msg-moe"].add_argument("--experts-per-chip", type=int, default=1)
     m["msg-moe"].add_argument("--skew", type=float, default=0.0)
     m["msg-moe"].add_argument("--combine", action="store_true")
@@ -492,6 +550,14 @@ def main():
             eps = endpoints_of(a.topo) if a.topo else list(range(a.endpoints))
             engines = [f"c{r}" for r in a.engines.split(",")]
             sch = chunked(msg_innet, a.chunks, a.bytes, eps, engines, reduce_gbps=a.reduce_gbps)
+        elif a.cmd == "msg-pipeline":
+            eps = endpoints_of(a.topo) if a.topo else list(range(a.endpoints))
+            if len(eps) % a.stages:
+                ap.error("endpoints must divide evenly into --stages")
+            per = len(eps) // a.stages
+            sch = Schedule()
+            msg_pipeline(sch, [eps[i * per:(i + 1) * per] for i in range(a.stages)], a.bytes,
+                         a.microbatches, a.compute_ns)
         elif a.cmd == "msg-moe":
             eps = endpoints_of(a.topo) if a.topo else list(range(a.endpoints))
             sch = Schedule()
@@ -513,6 +579,7 @@ def main():
             _, cycles = ham_cycles(a.topo, a.k)
             print(f"{len(cycles)} edge-disjoint Hamiltonian rings")
             sch = chunked(msg_rings, a.chunks, a.bytes, cycles, reduce_gbps=a.reduce_gbps)
+        sch = repeated(sch, a.repeat)
         fabricio.write_messages(a.out, sch.msgs)
         print(f"{a.out}: {len(sch.msgs)} messages, "
               f"{sum(m[2] for m in sch.msgs)} bytes")

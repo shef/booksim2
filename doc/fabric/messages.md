@@ -206,11 +206,14 @@ it forwards. A new system only needs its group lists.
 | `msg-innet` | in-network all-reduce: each chip streams 1/K of its data to each of K compute-terminal engines (`--engines`), which stream the reduced result back (`stream=`) |
 | `msg-bcast` | broadcast from one endpoint: `unicast` (every copy from the root; an upper bound, since BookSim has no multicast), `relay` (through compute-terminal engines, as switch multicast) or `tree` (endpoints relay down a binary tree as data arrives) |
 | `msg-moe` | MoE expert-parallel all-to-all: each chip sends S to experts spread over the chips, weighted by Zipf popularity (`--skew`, 0 = uniform), local tokens stay local; `--combine` adds the return trip |
+| `msg-pipeline` | pipeline parallel (GPipe): `--stages` groups of chips, `--microbatches` of activations forward then gradients back, `--compute-ns` per hop |
 | `msg-tree` | tree all-reduce: the whole buffer reduced up a binary tree and broadcast down, chunk by chunk; `--double` uses two complementary trees with half each (NCCL's double binary tree); about 2 log2 N steps instead of 2(N-1), for latency-bound sizes and switched fabrics |
 
 `--bytes S` is the buffer per chip, as in NCCL. `--chunks C` makes C
 independent pipelines; `--reduce-gbps R` delays each forward of reduced
-data by bytes / R. Steps are tagged (`rs0.3` is reduce-scatter stage 0,
+data by bytes / R; `--repeat L` runs L collectives back to back, each chip
+starting the next after receiving all of the previous (inference decode:
+one small all-reduce per layer). Steps are tagged (`rs0.3` is reduce-scatter stage 0,
 step 3) so per-step spans show when a run reaches its steady state.
 
 ## Tests
@@ -243,6 +246,10 @@ cycles):
 
 Without `fabric_eject_any` the all-to-all took 7,084 cycles: incast into
 each chip used only part of its four ejection ports.
+
+Small all-reduces (16 KB, latency-bound, as in decode): in-network 151
+cycles against 779 for a double binary tree; `--repeat 4` takes 607 and
+3,142, four times one.
 
 MoE dispatch, 1.6 MB per chip, 4 experts per chip: uniform popularity
 2,388 cycles (the plain all-to-all), Zipf skew 1 5,387, skew 2 11,553; the
