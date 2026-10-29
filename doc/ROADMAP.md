@@ -18,12 +18,14 @@ ignores `injection_rate`, so it always runs overloaded.
       per pair: on 4x4x4 it delivered about 92% of the offered rate even
       below saturation and could not tell one OCS failure from none. The
       message engine below is needed for a true all-to-all.
-- [ ] Message engine: a schedule file of messages (source, destination,
-      bytes, dependencies on earlier messages); BookSim injects each when its
-      dependencies have arrived and reports per-step and total completion
-      time.
-- [ ] Generators in `utils/fabric/collectives.py` for that format: ring
-      all-reduce (torus, Boardfly), hierarchical all-reduce, all-to-all.
+- [x] Message workload design: [fabric/messages.md](fabric/messages.md)
+      (endpoints by router, bytes and ns so one file fits any system,
+      dependencies by earlier id, completion time, stall detection).
+- [ ] Engine: traffic-manager hooks for packet destination and size, fabric
+      terminal ranges, `sim_type = messages` with the message file, per-tag
+      and per-message output, stall detection; tests 1-5 of the design.
+- [ ] Generators in `utils/fabric/collectives.py`: equal-bytes all-to-all,
+      ring and hierarchical all-reduce (chunked), reduction delay; test 7.
 - [ ] Rerun the NSDI Table 2 comparison as a fixed-bytes all-to-all and
       compare with the busiest-link bound.
 - [ ] Chakra execution-trace import (MLCommons; used by ASTRA-sim).
