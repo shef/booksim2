@@ -202,6 +202,8 @@ it forwards. A new system only needs its group lists.
 | `msg-torus` | ring stages along X, Y, Z in three rotated orders and both directions, S/6 each |
 | `msg-boardfly` | direct stages within trays, groups, then across groups |
 | `msg-rings` | bidirectional ring over up to K edge-disjoint Hamiltonian cycles of a topology |
+| `msg-ring` | bidirectional logical ring over the endpoints in order, routed by the fabric (for switched fabrics) |
+| `msg-innet` | in-network all-reduce: each chip streams 1/K of its data to each of K compute-terminal engines (`--engines`), which stream the reduced result back (`stream=`) |
 | `msg-tree` | tree all-reduce: the whole buffer reduced up a binary tree and broadcast down, chunk by chunk; `--double` uses two complementary trees with half each (NCCL's double binary tree); about 2 log2 N steps instead of 2(N-1), for latency-bound sizes and switched fabrics |
 
 `--bytes S` is the buffer per chip, as in NCCL. `--chunks C` makes C
@@ -222,6 +224,24 @@ step 3) so per-step spans show when a run reaches its steady state.
    ratio of completion times matches the busiest-link bound (94.1%) within
    about 2%. This is the measurement the NSDI study lacked.
 7. Ring all-reduce time follows the 2(N-1) steps x (S/N)/B formula.
+
+### Example: an 8-chip, 4-switch Clos
+
+`clos.py --chips 8 --switches 4 --compute 8`, 1.6 MB per chip, links of one
+flit per cycle, `speculative = 1`, `fabric_eject_any = 1` (completion in
+cycles):
+
+| Collective | Cycles | Note |
+|---|---|---|
+| in-network all-reduce (`msg-innet`) | 2,378 | each chip sends S once over its 4 links: ideal about 2,000 |
+| all-to-all, 1.4 MB sent per chip | 2,388 | ideal about 1,750 to 2,000 |
+| ring all-reduce (`msg-ring`, 4 chunks) | 9,359 | ring neighbours route through only 2 of the 4 switches (one path per pair); 7,256 without `fabric_eject_any`, not yet explained |
+| double binary tree (16 chunks) | 19,117 | inner chips carry the whole buffer on few links |
+
+Without `fabric_eject_any` the all-to-all took 7,084 cycles: incast into
+each chip used only part of its four ejection ports. A switched fabric also
+needs multipath routing (packets spread over switches) for rings to use all
+links; see ROADMAP.md.
 
 ## In-network and near-network compute (design)
 

@@ -22,6 +22,7 @@
 | `fabric_path_file` | | source routes for `src` |
 | `fabric_esc_layers` | 0 | escape layers in the tables (`lduato`, `ugal`) |
 | `ugal_threshold` | 0 | UGAL bias toward the minimal path, in used credits x hops |
+| `fabric_eject_any` | 0 | 1: a packet may leave its destination router through any terminal of the same kind (chip or compute), least occupied first, one packet per port at a time; without it each packet's terminal is fixed at the source and incast into a multi-terminal endpoint uses only part of its ports. Recommended for message runs with several terminals per chip |
 
 ## Example and tests
 

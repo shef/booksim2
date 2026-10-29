@@ -636,6 +636,22 @@ def fabric_compute_terminals():
     assert code != 0 and "no compute terminals" in out, out[-500:]
 
 
+def fabric_eject_any():
+    """fabric_eject_any = 1 lets a packet leave through any terminal of its
+    destination: four chips sending to one chip with four terminals through
+    four switches (incast) then use all four ejection ports, about twice as
+    fast as with each packet's terminal fixed at the source. Also checks
+    clos.py's routes are deadlock-free."""
+    d = os.path.join(TMP, "clos")
+    exporter("clos.py", d, "--chips", "8", "--switches", "4")
+    assert "acyclic" in exporter("cdgcheck.py", f"{d}/topo.txt", f"{d}/paths.txt")
+    _write(d, msgs="".join(f"{i - 1} {i} 0 1600000\n" for i in range(1, 5)))
+    big = ["num_vcs=4", "vc_buf_size=512"]          # cover the switch round trip
+    fixed, _, _ = _messages(d, big)
+    anyp, _, _ = _messages(d, big + ["fabric_eject_any=1"])
+    assert anyp < 0.6 * fixed, (fixed, anyp)
+
+
 TESTS = [make_upstream_test(c) for c in UPSTREAM] + [
     fabric_latency_per_hop, fabric_dor_torus_hops, fabric_src_torus_fixture,
     fabric_switched_terminals, fabric_groupshift, fabric_matrix_errors, fabric_port_gap_error,
@@ -645,7 +661,7 @@ TESTS = [make_upstream_test(c) for c in UPSTREAM] + [
     utils_collective_messages, fabric_messages_ring_allreduce,
     fabric_link_rates, fabric_stats_json, utils_harness,
     fabric_link_util, fabric_messages_stream,
-    fabric_compute_terminals,
+    fabric_compute_terminals, fabric_eject_any,
 ] + [make_smoke_test(r, x) for r, x in (("lduato", []), ("duato", []), ("updown", []),
                                         ("esc", []), ("ugal", ["ugal_threshold=128"]))]
 

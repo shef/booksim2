@@ -38,6 +38,11 @@ all-to-all where each chip sends S / N to every other chip.
                      exchange within trays, then groups, then across groups
   msg-rings          bidirectional ring all-reduce over up to K edge-disjoint
                      Hamiltonian cycles of a topology file
+  msg-ring           bidirectional ring all-reduce over the endpoints in order
+                     (a logical ring routed by the fabric; for switched fabrics)
+  msg-innet          in-network all-reduce: chips stream 1/K of the data to
+                     each of K compute-terminal engines (--engines R,R,...,
+                     written cR), which stream the reduced result back
   msg-tree           tree all-reduce over the endpoints: the whole buffer is
                      reduced up a binary tree and broadcast back down, chunk
                      by chunk (use --chunks to pipeline); --double splits it
@@ -53,6 +58,8 @@ usage: collectives.py torus-rings OUT [--dims X Y Z] [--twisted]
        collectives.py msg-torus OUT --bytes S [--dims X Y Z] [COMMON]
        collectives.py msg-boardfly OUT --bytes S [--groups G] [COMMON]
        collectives.py msg-rings OUT TOPO_FILE --bytes S [--k K] [COMMON]
+       collectives.py msg-ring OUT --bytes S (--endpoints N | --topo TOPO_FILE) [COMMON]
+       collectives.py msg-innet OUT --bytes S --endpoints N --engines R,R,... [COMMON]
        collectives.py msg-tree OUT --bytes S (--endpoints N | --topo TOPO_FILE)
                       [--double] [COMMON]
          COMMON: [--chunks C] [--reduce-gbps R]
@@ -108,7 +115,7 @@ def load_graph(path):
     n = int(lines[0][0])
     adj = [set() for _ in range(n)]
     for l in lines[1:]:
-        if l[0] == "t":
+        if l[0] in ("t", "c"):
             continue
         u, v = int(l[0]), int(l[2])
         adj[u].add(v)
@@ -184,8 +191,9 @@ class Schedule:
     def __init__(self):
         self.msgs = []
 
-    def add(self, src, dst, nbytes, deps=(), delay=0, tag=""):
-        self.msgs.append((src, dst, max(1, round(nbytes)), sorted(set(deps)), delay, tag))
+    def add(self, src, dst, nbytes, deps=(), delay=0, tag="", stream=()):
+        self.msgs.append((src, dst, max(1, round(nbytes)), sorted(set(deps)), delay, tag,
+                          sorted(set(stream))))
         return len(self.msgs) - 1
 
 
@@ -330,6 +338,26 @@ def msg_trees(sch, endpoints, nbytes, double=False, reduce_gbps=0):
     msg_tree(sch, binary_tree(endpoints[::-1]), nbytes / 2, reduce_gbps, "tree1")
 
 
+def msg_ring(sch, endpoints, nbytes, reduce_gbps=0):
+    """Bidirectional ring all-reduce over endpoints in the given order
+    (a logical ring: each step's message is routed by the fabric)."""
+    for direction in (1, -1):
+        allreduce(sch, [([endpoints[::direction]], "ring")], nbytes / 2, reduce_gbps)
+
+
+def msg_innet(sch, chips, engines, nbytes, reduce_gbps=0):
+    """In-network all-reduce: each chip streams 1/K of its data to each of the
+    K engines (compute terminals, "cR"), which reduce as data arrives and
+    stream the result back to every chip, as switch-reduction (SHARP-style)
+    collectives do."""
+    k = len(engines)
+    delay = round(nbytes / k / reduce_gbps / max(1, len(chips))) if reduce_gbps else 0
+    for e in engines:
+        ups = [sch.add(c, e, nbytes / k, tag="innet.up") for c in chips]
+        for c in chips:
+            sch.add(e, c, nbytes / k, delay=delay, tag="innet.down", stream=ups)
+
+
 def endpoints_of(topo):
     """Routers with terminals in a topology file (all, unless `t R 0`)."""
     with open(topo) as f:
@@ -356,7 +384,8 @@ def main():
     r.add_argument("topo")
     r.add_argument("--k", type=int, default=3)
     m = {}
-    for name in ("msg-alltoall", "msg-torus", "msg-boardfly", "msg-rings", "msg-tree"):
+    for name in ("msg-alltoall", "msg-torus", "msg-boardfly", "msg-rings", "msg-tree",
+                 "msg-ring", "msg-innet"):
         m[name] = sub.add_parser(name)
         m[name].add_argument("out")
         if name == "msg-rings":
@@ -366,9 +395,11 @@ def main():
         if name != "msg-alltoall":
             m[name].add_argument("--chunks", type=int, default=1)
             m[name].add_argument("--reduce-gbps", type=float, default=0)
-    for name in ("msg-alltoall", "msg-tree"):
+    for name in ("msg-alltoall", "msg-tree", "msg-ring", "msg-innet"):
         m[name].add_argument("--endpoints", type=int)
         m[name].add_argument("--topo")
+    m["msg-innet"].add_argument("--engines", required=True,
+                                help="routers whose compute terminals reduce, e.g. 8,9,10,11")
     m["msg-tree"].add_argument("--double", action="store_true")
     m["msg-torus"].add_argument("--dims", type=int, nargs=3, default=[8, 8, 16])
     m["msg-boardfly"].add_argument("--groups", type=int, default=32)
@@ -379,6 +410,13 @@ def main():
             sch = msg_alltoall(eps, a.bytes)
         elif a.cmd == "msg-torus":
             sch = chunked(msg_torus, a.chunks, a.bytes, a.dims, reduce_gbps=a.reduce_gbps)
+        elif a.cmd == "msg-ring":
+            eps = endpoints_of(a.topo) if a.topo else list(range(a.endpoints))
+            sch = chunked(msg_ring, a.chunks, a.bytes, eps, reduce_gbps=a.reduce_gbps)
+        elif a.cmd == "msg-innet":
+            eps = endpoints_of(a.topo) if a.topo else list(range(a.endpoints))
+            engines = [f"c{r}" for r in a.engines.split(",")]
+            sch = chunked(msg_innet, a.chunks, a.bytes, eps, engines, reduce_gbps=a.reduce_gbps)
         elif a.cmd == "msg-tree":
             eps = endpoints_of(a.topo) if a.topo else list(range(a.endpoints))
             sch = chunked(msg_trees, a.chunks, a.bytes, eps, double=a.double,

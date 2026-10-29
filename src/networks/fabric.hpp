@@ -72,6 +72,7 @@ public:
   Fabric(const Configuration &config, const std::string &name);
   virtual double TerminalRate(int node) const;
   virtual void WriteLinkUtil(const std::string &file, long long cycles) const;
+  virtual bool EjectMatches(int flit_dest, int node) const;
   static void RegisterRoutingFunctions();
 };
 

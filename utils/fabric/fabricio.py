@@ -1,15 +1,17 @@
 """Writers for the fabric file formats (doc/fabric/formats.md)."""
 
 
-def write_topology(path, routers, links, terminals=None):
+def write_topology(path, routers, links, terminals=None, compute=None):
     """links: (u, port_u, v, port_v, kind, latency[, rate]) with link ports
     from 1; terminals: optional {router: count or (count, rate)} overriding
-    fabric_terminals. Rates are flits per cycle, written only when below 1."""
+    fabric_terminals; compute: optional {router: count or (count, rate)} of
+    compute terminals. Rates are flits per cycle, written only when below 1."""
     with open(path, "w") as f:
         f.write(f"{routers}\n")
-        for r, n in sorted((terminals or {}).items()):
-            n, rate = n if isinstance(n, tuple) else (n, 1)
-            f.write(f"t {r} {n}" + (f" {rate:g}" if rate < 1 else "") + "\n")
+        for tag, table in (("t", terminals), ("c", compute)):
+            for r, n in sorted((table or {}).items()):
+                n, rate = n if isinstance(n, tuple) else (n, 1)
+                f.write(f"{tag} {r} {n}" + (f" {rate:g}" if rate < 1 else "") + "\n")
         for l in links:
             u, pu, v, pv, kind, lat = l[:6]
             rate = l[6] if len(l) > 6 else 1
@@ -40,14 +42,19 @@ def write_matrix(path, endpoints, flows):
 
 
 def write_messages(path, msgs):
-    """msgs: (src, dst, bytes, deps, delay_ns, tag) with ids 0, 1, ... in list
-    order; deps name earlier ids (doc/fabric/messages.md)."""
+    """msgs: (src, dst, bytes, deps, delay_ns, tag[, stream]) with ids 0, 1,
+    ... in list order; deps and stream name earlier ids; src and dst are
+    router indices or "cR" for compute terminals (doc/fabric/messages.md)."""
     with open(path, "w") as f:
-        f.write("# id src dst bytes [after=...] [delay=NS] [tag=...]\n")
-        for i, (s, d, b, deps, delay, tag) in enumerate(msgs):
+        f.write("# id src dst bytes [after=...] [stream=...] [delay=NS] [tag=...]\n")
+        for i, m in enumerate(msgs):
+            s, d, b, deps, delay, tag = m[:6]
+            stream = m[6] if len(m) > 6 else ()
             line = f"{i} {s} {d} {b}"
             if deps:
                 line += " after=" + ",".join(map(str, deps))
+            if stream:
+                line += " stream=" + ",".join(map(str, stream))
             if delay:
                 line += f" delay={delay}"
             if tag:

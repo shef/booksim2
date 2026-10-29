@@ -23,7 +23,7 @@ def load_links(path):
     with open(path) as f:
         lines = [l.split("#")[0].split() for l in f]
     for l in lines[1:]:
-        if not l or l[0] == "t":
+        if not l or l[0] in ("t", "c"):
             continue
         u, pu, v, pv = map(int, l[:4])
         nxt[(u, pu)] = v

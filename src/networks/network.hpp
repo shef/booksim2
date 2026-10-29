@@ -93,6 +93,8 @@ public:
   virtual double TerminalRate( int node ) const { return 1.0; }
   // Write per-link flit counts and utilization over `cycles` (fabric only).
   virtual void WriteLinkUtil( const string &file, long long cycles ) const;
+  // Whether a flit for flit_dest may eject at node (fabric_eject_any).
+  virtual bool EjectMatches( int flit_dest, int node ) const { return flit_dest == node; }
 
   virtual void ReadInputs( );
   virtual void Evaluate( );

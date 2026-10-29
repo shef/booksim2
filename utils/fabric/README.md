@@ -9,6 +9,7 @@ of each exporter and are documented on the system pages (doc/systems/).
 |---|---|---|
 | `boardfly.py` | TPU 8i slices with optional failures: topology, `lduato` tables, meta.json | [tpu-boardfly.md](../../doc/systems/tpu-boardfly.md) |
 | `torus.py` | TPU 3D torus slices, plain or twisted, optionally with one OCS failure: topology and `src` routes | [tpu-torus.md](../../doc/systems/tpu-torus.md) |
+| `clos.py` | generic single-tier Clos (N chips, one link to each of K switches; optional switch compute terminals): topology and `src` routes, destinations spread over VCs | |
 | `harness.py` | runs a config over seeds (mean and 95% CI of any `stats_json` metric) or sweeps offered load (saturation, collapse flag) | |
 | `collectives.py` | collectives as traffic matrices (open loop) or message files (`msg-*`, timed to completion; doc/fabric/messages.md) | |
 | `cdgcheck.py` | checks a path file for channel dependency cycles (deadlock freedom of `src` routes) | [routing.md](../../doc/fabric/routing.md) |

@@ -204,6 +204,7 @@ BookSimConfig::BookSimConfig( )
 
   AddStrField("stats_json", "");  // write structured results to this file
   AddStrField("link_util_file", "");  // per-link flit counts (fabric)
+  _int_map["fabric_eject_any"] = 0;   // 1: eject through any terminal of the endpoint
 
   // sim_type = messages (doc/fabric/messages.md)
   AddStrField("message_file", "");

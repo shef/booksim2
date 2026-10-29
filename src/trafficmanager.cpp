@@ -742,7 +742,7 @@ void TrafficManager::_RetireFlit( Flit *f, int dest )
                    << ")." << endl;
     }
 
-    if ( f->head && ( f->dest != dest ) ) {
+    if ( f->head && !_net[f->subnetwork]->EjectMatches( f->dest, dest ) ) {
         ostringstream err;
         err << "Flit " << f->id << " arrived at incorrect output " << dest;
         Error( err.str( ) );

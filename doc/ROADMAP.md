@@ -46,6 +46,11 @@ ignores `injection_rate`, so it always runs overloaded.
       `fabric_compute_terminals`) so switches can reduce and replicate
       (NVLink SHARP, multicast). Next: reduction profiles and generators
       that use them (in-switch trees, relay multicast).
+- [x] Generic single-tier Clos exporter (`clos.py`) and generators
+      `msg-ring`, `msg-innet`; `fabric_eject_any` so incast uses every
+      ejection port (all-to-all on an 8-chip Clos: 7,084 -> 2,388 cycles).
+      Open: ring all-reduce is slower with `fabric_eject_any` (9,359 vs
+      7,256); rings on a Clos need multipath routing (section 4).
 - [ ] Multicast by relay replication: copies made at compute terminals,
       forwarded packet by packet with `stream=`; compared against unicast
       emulation (the source sends N copies, an upper bound). BookSim has no

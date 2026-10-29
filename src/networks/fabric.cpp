@@ -62,6 +62,7 @@ std::vector<int> gNodeRouter;  // [node] router
 std::vector<double> gTermRate; // [router] terminal rate, flits per cycle
 std::vector<int> gCompute;        // [router] compute terminals (last in its range)
 std::vector<double> gComputeRate; // [router] their rate
+bool gEjectAny = false;           // fabric_eject_any: eject through any terminal of the endpoint
 std::vector<std::vector<int> > gPortPeer;     // [router][link port] neighbour router
 std::vector<std::vector<double> > gPortRate;  // [router][link port] rate
 std::vector<std::vector<int> > gPortKind;  // [router][link port] kind
@@ -121,8 +122,33 @@ bool Eject(const Router *r, const Flit *f, OutputSet *outputs) {
     ++gHeads;
     if (f->vc >= gEscapeVcBase) ++gEscaped;
   }
-  outputs->AddRange(f->dest - gFirstNode[id], 0, gNumVCs - 1);
+  int t = f->dest - gFirstNode[id];
+  if (!gEjectAny) {
+    outputs->AddRange(t, 0, gNumVCs - 1);
+    return true;
+  }
+  // Any terminal of the same kind (the router's own, or its compute
+  // terminals): incoming data lands through whichever port is free.
+  // One VC per ejection port, so a port carries one packet at a time and
+  // others take free ports; least occupied first, ties rotating with the
+  // packet id so packets arriving together spread out.
+  int own = gTerms[id] - gCompute[id];
+  int lo = t < own ? 0 : own, hi = t < own ? own : gTerms[id], n = hi - lo;
+  for (int u = lo; u < hi; ++u) {
+    int used = std::max(r->GetUsedCredit(u), 0);
+    int rot = ((u - lo) - f->pid % n + n) % n;
+    outputs->AddRange(u, 0, 0, 100000 - 64 * used - rot);
+  }
   return true;
+}
+
+bool FabricEjectMatches(int flit_dest, int node) {
+  if (flit_dest == node) return true;
+  if (!gEjectAny) return false;
+  int r = gNodeRouter[flit_dest];
+  if (gNodeRouter[node] != r) return false;
+  int own = gTerms[r] - gCompute[r];
+  return (flit_dest - gFirstNode[r] < own) == (node - gFirstNode[r] < own);
 }
 
 // Adaptive VCs 0..adaptive-1 on every minimal link port in mask, less
@@ -406,6 +432,7 @@ void ReadTopology(const std::string &file, int default_terms, int *routers,
 
 void Fabric::_ComputeSize(const Configuration &config) {
   _topo_file = config.GetStr("network_file");
+  gEjectAny = config.GetInt("fabric_eject_any") != 0;
   std::vector<Link> links;
   ReadTopology(_topo_file, config.GetInt("fabric_terminals"), &gRouters, &gTerms, &links,
                &gTermRate, &gCompute, &gComputeRate);
@@ -444,6 +471,10 @@ void Fabric::WriteLinkUtil(const std::string &file, long long cycles) const {
   StatsJson::Set("links", "max_utilization", max_u);
   StatsJson::Set("links", "mean_utilization", n ? sum_u / n : 0);
   StatsJson::Set("links", "cycles", (double)cycles);
+}
+
+bool Fabric::EjectMatches(int flit_dest, int node) const {
+  return FabricEjectMatches(flit_dest, node);
 }
 
 double Fabric::TerminalRate(int node) const {
