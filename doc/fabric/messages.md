@@ -54,6 +54,17 @@ messages.
   (fair sharing, no message starves). Packets go out as fast as the
   terminal and network accept them; there is no rate parameter, because the
   question is how long the work takes.
+- **Window** (`message_window`, packets): at most this many packets per
+  source endpoint are in flight (issued, tail not yet ejected), as a
+  transport's window or a DMA engine's outstanding-request limit bounds
+  them. Without one, a large all-to-all is open-loop traffic far past
+  saturation, and BookSim's input-queued routers then lose most of their
+  throughput to head-of-line blocking (post-saturation collapse), worse the
+  longer the run: on a 4x4x8 twisted torus, 48 KB per pair took 41,666
+  cycles with links 40% busy, against 20,972 with a window of 512. Set it
+  to cover the bandwidth-delay product (rate per endpoint x round trip):
+  there, 384 to 1,024 packets gave the same time, and collapse returned
+  past about 1,500. 0 (the default) means no limit.
 - **Pipelining** is the generator's choice: a step that forwards data as it
   arrives is several smaller messages (chunks), each depending on the
   matching incoming chunk.
@@ -148,6 +159,7 @@ can be added later without touching the rest.
 | `flit_bytes` | 200 | bytes per flit, from the system calibration |
 | `cycle_ns` | 1.0 | nanoseconds per cycle, from the system calibration |
 | `message_stall_cycles` | 1000000 | cycles without an ejected flit before a run with unfinished messages stops |
+| `message_window` | 0 | packets in flight per source endpoint (0: no limit); set for bandwidth-bound runs, see Window above |
 | `message_out_file` | | optional per-message results: id, tag, ready, first injection, finish (cycles) |
 
 ## Output
@@ -233,19 +245,23 @@ step 3) so per-step spans show when a run reaches its steady state.
 ### Example: an 8-chip, 4-switch Clos
 
 `clos.py --chips 8 --switches 4 --compute 8`, 1.6 MB per chip, links of one
-flit per cycle, `speculative = 1`, `fabric_eject_any = 1` (completion in
-cycles):
+flit per cycle, `speculative = 1`, `num_vcs = 4`, `vc_buf_size = 512`
+(completion in cycles; "fixed" rotates each packet's destination terminal
+at the source, "any" is `fabric_eject_any = 1`):
 
-| Collective | One path per pair | `--multipath` | Note |
-|---|---|---|---|
-| one message, chip to chip | 8,130 | 2,358 | 8,000 flits over one link, or four |
-| in-network all-reduce (`msg-innet`) | 2,378 | 2,378 | each chip sends S once over its 4 links: ideal about 2,000 |
-| all-to-all, 1.4 MB sent per chip | 2,388 | 2,860 | the fixed (i + j) mod K assignment is already balanced; spreading adds downlink collisions |
-| ring all-reduce (`msg-ring`, 4 chunks) | 9,359 | 5,789 | one path per pair puts ring neighbours on 2 of the 4 switches; 7,256 single-path without `fabric_eject_any`, not yet explained |
-| double binary tree (16 chunks) | 19,117 | 11,074 | inner chips carry the whole buffer |
+| Collective | One path, fixed | One path, any | `--multipath`, fixed | `--multipath`, any | Note |
+|---|---|---|---|---|---|
+| one message, chip to chip | 8,108 | 8,130 | 2,108 | 2,358 | 8,000 flits over one link, or four |
+| in-network all-reduce (`msg-innet`) | 2,244 | 2,378 | 2,244 | 2,378 | each chip sends S once over its 4 links: ideal about 2,000 |
+| all-to-all, 1.4 MB sent per chip | 2,724 | 2,388 | 3,040 | 2,860 | the fixed (i + j) mod K assignment is already balanced; spreading adds downlink collisions |
+| ring all-reduce (`msg-ring`, 4 chunks) | 7,256 | 9,359 | 6,274 | 5,789 | one path per pair puts ring neighbours on 2 of the 4 switches |
+| double binary tree (16 chunks) | 24,819 | 19,117 | 12,418 | 11,074 | inner chips carry the whole buffer |
 
-Without `fabric_eject_any` the all-to-all took 7,084 cycles: incast into
-each chip used only part of its four ejection ports.
+Neither ejection mode wins everywhere: choosing the least occupied port
+helps where incast varies (all-to-all, trees) and costs up to 12%
+elsewhere. Before 2026-10-29 the fixed rotation was `(source terminal +
+packet) mod terminals`, which kept one parity and used half the ports
+(all-to-all 7,084 cycles); it is now `(message id + packet) mod terminals`.
 
 Small all-reduces (16 KB, latency-bound, as in decode): in-network 151
 cycles against 779 for a double binary tree; `--repeat 4` takes 607 and

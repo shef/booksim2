@@ -26,6 +26,7 @@ MessageTrafficManager::MessageTrafficManager(const Configuration &config,
   _packet_size = config.GetInt("packet_size");
   _cycle_ns = config.GetFloat("cycle_ns");
   _stall_cycles = config.GetInt("message_stall_cycles");
+  _window = config.GetInt("message_window");
   _out_file = config.GetStr("message_out_file");
   if (_flit_bytes <= 0 || _packet_size <= 0 || _cycle_ns <= 0)
     Fail("flit_bytes, packet_size and cycle_ns must be positive");
@@ -37,6 +38,7 @@ MessageTrafficManager::MessageTrafficManager(const Configuration &config,
 
   _ready.assign(_ep_first.size(), vector<int>());
   _rr.assign(_ep_first.size(), 0);
+  _in_flight.assign(_ep_first.size(), 0);
   _next_msg.assign(_nodes, -1);
   _next_dest.assign(_nodes, -1);
   _next_size.assign(_nodes, 0);
@@ -208,16 +210,20 @@ int MessageTrafficManager::_IssuePacket(int source, int cl) {
   int ep = _node_ep[source];
   vector<int> &ready = _ready[ep];
   if (ready.empty()) return 0;
+  if (_window > 0 && _in_flight[ep] >= _window) return 0;
+  ++_in_flight[ep];
   size_t &rr = _rr[ep];
   if (rr >= ready.size()) rr = 0;
   int i = ready[rr];
   Message &m = _msgs[i];
-  int t = source - _ep_first[ep];
   _next_msg[source] = i;
   // Rotate destination terminals per packet so each message spreads over
   // all of them (several single-terminal chips can feed one multi-terminal
-  // endpoint at full rate).
-  _next_dest[source] = _ep_first[m.dst] + (t + m.issued) % _ep_count[m.dst];
+  // endpoint at full rate), offset by message id so messages arriving
+  // together start on different terminals. Not by source terminal: which
+  // terminal issues a message's next packet follows the round-robin, and
+  // t + issued kept the same parity, leaving half the terminals idle.
+  _next_dest[source] = _ep_first[m.dst] + (m.id + m.issued) % _ep_count[m.dst];
   _next_size[source] = m.issued == m.packets - 1 ? m.last_size : _packet_size;
   if (m.issued == 0) m.first_inject = _time;
   if (++m.issued >= _Allowed(m)) {  // done, or waiting for streamed data
@@ -244,6 +250,7 @@ void MessageTrafficManager::_RetireFlit(Flit *f, int dest) {
   _last_retire = _time;
   if (!f->tail) return;
   Message &m = _msgs[_pid_msg[f->pid]];
+  --_in_flight[m.src];
   for (size_t k = 0; k < m.stream_dependents.size(); ++k) {
     int d = m.stream_dependents[k].first;
     _grants.push(make_pair(_time + _msgs[d].delay, make_pair(d, m.stream_dependents[k].second)));

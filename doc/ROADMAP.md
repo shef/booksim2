@@ -48,13 +48,19 @@ ignores `injection_rate`, so it always runs overloaded.
       that use them (in-switch trees, relay multicast).
 - [x] Generic single-tier Clos exporter (`clos.py`) and generators
       `msg-ring`, `msg-innet`; `fabric_eject_any` so incast uses every
-      ejection port (all-to-all on an 8-chip Clos: 7,084 -> 2,388 cycles).
-      Open: ring all-reduce is slower with `fabric_eject_any` (9,359 vs
-      7,256 single-path, 5,789 vs 4,960 multipath): each ring step's span
-      grows over the run (608 -> 875 ns fixed, 673 -> 1,518 ns any), so it
-      is a dynamic interaction, likely between ejection-port choice and the
-      single destination VC per input link. More VCs per ejection port made
-      it worse.
+      ejection port. The 7,084 -> 2,388 all-to-all gain it was credited
+      with was mostly a bug in the default (destination terminal rotated by
+      source terminal + packet, which kept one parity and used half the
+      ports; fixed 2026-10-29: rotated by message id + packet, 2,724).
+      Neither mode wins everywhere now (messages.md, Clos example). Open:
+      ring all-reduce single-path is slower with `fabric_eject_any` (9,359
+      vs 7,256): each ring step's span grows over the run, a dynamic
+      interaction, likely between ejection-port choice and the single
+      destination VC per input link.
+- [x] `message_window` (packets in flight per endpoint): without it a
+      large all-to-all is open-loop traffic far past saturation and
+      collapses (4x4x8 twisted, 48 KB per pair: 41,666 cycles, links 40%
+      busy; window 512: 20,972). Set it for bandwidth-bound runs.
 - [x] Multicast by relay replication (`msg-bcast --mode relay`, test
       `fabric_multicast_relay`): copies made at compute terminals, forwarded
       packet by packet with `stream=`. On an 8-chip Clos it is about six

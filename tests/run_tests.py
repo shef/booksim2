@@ -384,7 +384,8 @@ LINE_TOPO = "3\n0 1 1 1 0 10\n1 2 2 1 0 10\n"
 def fabric_messages_basic():
     """One message takes zero-load latency plus one cycle per flit; two
     messages over the same link take twice the serialization; a dependency
-    starts the next message after its delay."""
+    starts the next message after its delay; message_window limits packets
+    in flight."""
     booksim([])  # writes base.cfg
     d = _write(os.path.join(TMP, "msg_basic"), topo=LINE_TOPO,
                paths="0 1 1 1 0\n1 0 1 1 0\n0 2 2 1 0 2 0\n2 0 2 1 0 1 0\n1 2 1 2 0\n2 1 1 1 0\n",
@@ -403,6 +404,14 @@ def fabric_messages_basic():
     assert abs(chain - (2 * one + 500)) <= 4, (one, chain)
     assert "Message tag b: 1 messages" in out
 
+    # message_window = 1: each packet waits for the previous one's tail, so
+    # every packet pays the latency plus its 7 body flits; a large window
+    # changes nothing.
+    _write(d, msgs="0 0 2 16000\n")               # 80 flits, 10 packets
+    free, _, _ = _messages(d)
+    w1, _, _ = _messages(d, ["message_window=1"])
+    assert abs(w1 - 10 * (lat + 7)) <= 20, (lat, w1)
+    assert _messages(d, ["message_window=1000"])[0] == free
 
 def fabric_messages_endpoints():
     """Endpoints are routers with terminals: a switch in the middle is not an
@@ -639,9 +648,10 @@ def fabric_compute_terminals():
 def fabric_eject_any():
     """fabric_eject_any = 1 lets a packet leave through any terminal of its
     destination: four chips sending to one chip with four terminals through
-    four switches (incast) then use all four ejection ports, about twice as
-    fast as with each packet's terminal fixed at the source. Also checks
-    clos.py's routes are deadlock-free."""
+    four switches (incast) finish near the four ejection ports' rate (one
+    port would take four times as long). So does the default, each packet's
+    terminal rotated at the source and offset by message id, which spreads
+    this incast evenly. Also checks clos.py's routes are deadlock-free."""
     d = os.path.join(TMP, "clos")
     exporter("clos.py", d, "--chips", "8", "--switches", "4")
     assert "acyclic" in exporter("cdgcheck.py", f"{d}/topo.txt", f"{d}/paths.txt")
@@ -649,7 +659,8 @@ def fabric_eject_any():
     big = ["num_vcs=4", "vc_buf_size=512"]          # cover the switch round trip
     fixed, _, _ = _messages(d, big)
     anyp, _, _ = _messages(d, big + ["fabric_eject_any=1"])
-    assert anyp < 0.6 * fixed, (fixed, anyp)
+    ideal = 4 * 1600000 / 200 / 4                   # flits over four ejection ports
+    assert fixed < 1.05 * ideal and anyp < 1.2 * ideal, (fixed, anyp, ideal)
 
 
 def fabric_multipath():

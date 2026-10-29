@@ -212,6 +212,7 @@ BookSimConfig::BookSimConfig( )
   _int_map["flit_bytes"] = 200;
   _float_map["cycle_ns"] = 1.0;
   _int_map["message_stall_cycles"] = 1000000;
+  _int_map["message_window"] = 0;
 
   // Use read/write request reply scheme
   _int_map["use_read_write"] = 0;

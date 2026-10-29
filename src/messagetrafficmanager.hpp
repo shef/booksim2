@@ -58,6 +58,8 @@ class MessageTrafficManager : public TrafficManager {
   int _flit_bytes, _packet_size;
   double _cycle_ns;
   long long _stall_cycles;
+  int _window;                   // message_window: packets in flight per endpoint (0 = no limit)
+  std::vector<int> _in_flight;   // [endpoint] packets issued, tail not yet ejected
   std::string _out_file;
   int _finished;
   long long _last_retire;
