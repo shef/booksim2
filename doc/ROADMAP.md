@@ -27,8 +27,11 @@ ignores `injection_rate`, so it always runs overloaded.
       Found on the way: BookSim's default router loses a cycle per packet
       on back-to-back packets of one VC (use `speculative = 1`), and
       upstream's exit status was inverted (fixed).
-- [ ] Decide `speculative = 1` for the calibrated system configs: rerun the
-      key torus and Boardfly results with it and record the difference.
+- [x] `speculative = 1` for calibrated configs: on the NSDI study's
+      saturation cases it changes open-loop throughput by 0.7% at most
+      (0.0-0.2% in five of six), against 1/9 for a single message with
+      8-flit packets. Decision: new studies and message runs use
+      `speculative = 1`; existing studies stay as recorded.
 - [x] Generators in `utils/fabric/collectives.py` (`msg-alltoall`,
       `msg-torus`, `msg-boardfly`, `msg-rings`): stages of ring or direct
       groups, chunks, reduction delay; tests check byte totals and the ring

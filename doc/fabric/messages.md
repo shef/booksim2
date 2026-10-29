@@ -11,7 +11,9 @@ back-to-back packets on one VC (every packet of a message follows the same
 source route) lose a cycle per packet: one message ran at 8/9 of link rate
 with 8-flit packets, and at half with 1-flit packets. Speculative switch
 allocation, as high-performance routers do, removes the gap. Open-loop
-traffic mixes VCs and inputs and mostly hides it.
+traffic mixes VCs and inputs and mostly hides it: on the NSDI study's
+saturation cases speculative allocation changed throughput by at most
+0.7%.
 
 ## Why
 
