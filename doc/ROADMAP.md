@@ -40,6 +40,14 @@ ignores `injection_rate`, so it always runs overloaded.
       Collectives Acceleration Engine and SparseCores); `stream=`
       dependencies for in-stream reduction; compute terminals (`c R N`) so
       switches can reduce and replicate (NVLink SHARP, multicast).
+- [ ] Multicast by relay replication: copies made at compute terminals,
+      forwarded packet by packet with `stream=`; compared against unicast
+      emulation (the source sends N copies, an upper bound). BookSim has no
+      multicast: every packet has one destination.
+- [ ] Native router multicast (a flit with a destination set, replicated at
+      routers), only if results fall between the two bounds above and the
+      gap matters: router changes for multi-output allocation and buffer
+      release, a multicast route format, and multicast deadlock freedom.
 - [ ] Rerun the NSDI Table 2 comparison as a fixed-bytes all-to-all and
       compare with the busiest-link bound.
 - [ ] Chakra execution-trace import (MLCommons; used by ASTRA-sim).
