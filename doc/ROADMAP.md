@@ -54,8 +54,9 @@ ignores `injection_rate`, so it always runs overloaded.
 
 ## 2. Measurement rigor
 
-- [ ] Structured results: `stats_out` style JSON with every metric, the
-      configuration and the fork commit, instead of parsing log text.
+- [x] Structured results: `stats_json = FILE` (options.md; test
+      `fabric_stats_json`) with status, build commit, full configuration,
+      traffic statistics and message results.
 - [ ] Run harness: seeds, confidence intervals, saturation from latency-load
       curves, and flags for collapse and for runs that never settled.
 - [ ] Studies use the harness; every number in a study comes with its

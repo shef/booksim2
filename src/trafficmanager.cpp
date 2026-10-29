@@ -41,6 +41,7 @@
 #include "trafficmanager.hpp"
 #include "batchtrafficmanager.hpp"
 #include "messagetrafficmanager.hpp"
+#include "stats_json.hpp"
 #include "random_utils.hpp" 
 #include "vc.hpp"
 #include "packet_reply_info.hpp"
@@ -2193,6 +2194,26 @@ void TrafficManager::DisplayStats(ostream & os) const {
 void TrafficManager::DisplayOverallStats( ostream & os ) const {
 
     os << "====== Overall Traffic Statistics ======" << endl;
+    for ( int c = 0; c < _classes; ++c ) {
+        if(_measure_stats[c] == 0) {
+            continue;
+        }
+        ostringstream sec;
+        sec << "traffic_class_" << c;
+        double n = (double)_total_sims;
+        StatsJson::Set(sec.str(), "packet_latency_avg", _overall_avg_plat[c] / n);
+        StatsJson::Set(sec.str(), "packet_latency_max", _overall_max_plat[c] / n);
+        StatsJson::Set(sec.str(), "network_latency_avg", _overall_avg_nlat[c] / n);
+        StatsJson::Set(sec.str(), "flit_latency_avg", _overall_avg_flat[c] / n);
+        StatsJson::Set(sec.str(), "injected_packet_rate_avg", _overall_avg_sent_packets[c] / n);
+        StatsJson::Set(sec.str(), "accepted_packet_rate_avg", _overall_avg_accepted_packets[c] / n);
+        StatsJson::Set(sec.str(), "injected_flit_rate_avg", _overall_avg_sent[c] / n);
+        StatsJson::Set(sec.str(), "accepted_flit_rate_avg", _overall_avg_accepted[c] / n);
+        StatsJson::Set(sec.str(), "accepted_flit_rate_min", _overall_min_accepted[c] / n);
+        StatsJson::Set(sec.str(), "accepted_flit_rate_max", _overall_max_accepted[c] / n);
+        StatsJson::Set(sec.str(), "hops_avg", _overall_hop_stats[c] / n);
+        StatsJson::Set(sec.str(), "samples", n);
+    }
     for ( int c = 0; c < _classes; ++c ) {
 
         if(_measure_stats[c] == 0) {

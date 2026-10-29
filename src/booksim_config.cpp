@@ -202,6 +202,8 @@ BookSimConfig::BookSimConfig( )
   _int_map["max_outstanding_requests"] = 0; // 0 = unlimited
   _int_map["batch_paced"] = 0; // 1 = batch packets follow injection_rate (fabric)
 
+  AddStrField("stats_json", "");  // write structured results to this file
+
   // sim_type = messages (doc/fabric/messages.md)
   AddStrField("message_file", "");
   AddStrField("message_out_file", "");

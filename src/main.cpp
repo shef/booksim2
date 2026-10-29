@@ -48,6 +48,7 @@
 #include "routefunc.hpp"
 #include "traffic.hpp"
 #include "booksim_config.hpp"
+#include "stats_json.hpp"
 #include "trafficmanager.hpp"
 #include "random_utils.hpp"
 #include "network.hpp"
@@ -125,6 +126,7 @@ bool Simulate( BookSimConfig const & config )
   gettimeofday(&start_time, NULL);
 
   bool result = trafficManager->Run() ;
+  StatsJson::Set( "run", "cycles", (double)trafficManager->getTime() );
 
 
   gettimeofday(&end_time, NULL);
@@ -180,8 +182,25 @@ int main( int argc, char **argv )
   }
   
 
+  StatsJson::SetFile( config.GetStr( "stats_json" ) );
+  for ( map<string, string>::const_iterator i = config.GetStrMap().begin();
+        i != config.GetStrMap().end(); ++i ) {
+    StatsJson::Set( "config", i->first, i->second );
+  }
+  for ( map<string, int>::const_iterator i = config.GetIntMap().begin();
+        i != config.GetIntMap().end(); ++i ) {
+    StatsJson::Set( "config", i->first, (double)i->second );
+  }
+  for ( map<string, double>::const_iterator i = config.GetFloatMap().begin();
+        i != config.GetFloatMap().end(); ++i ) {
+    StatsJson::Set( "config", i->first, i->second );
+  }
+  StatsJson::Set( "run", "build_commit", string( BUILD_COMMIT ) );
+
   /*configure and run the simulator
    */
   bool result = Simulate( config );
+  StatsJson::Set( "run", "status", string( result ? "ok" : "unstable" ) );
+  StatsJson::Write( );
   return result ? 0 : 1;  // upstream returned -1 on success and 0 on failure
 }

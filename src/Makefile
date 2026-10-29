@@ -26,7 +26,7 @@
 
 LEX = flex
 YACC   = bison -y
-DEFINE = 
+DEFINE = -DBUILD_COMMIT=\"$(shell git describe --always --dirty 2>/dev/null || echo unknown)\"
 INCPATH = -I. -Iarbiters -Iallocators -Irouters -Inetworks -Ipower
 CPPFLAGS += -Wall $(INCPATH) $(DEFINE)
 CPPFLAGS += -O3

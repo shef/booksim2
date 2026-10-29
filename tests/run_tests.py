@@ -516,6 +516,32 @@ def fabric_link_rates():
     assert code != 0 and "link rate" in out, out[-500:]
 
 
+def fabric_stats_json():
+    """stats_json writes one JSON file per run: status, build commit, every
+    configuration key, overall traffic statistics, and message results;
+    a stalled message run still writes it, with status "stalled"."""
+    import json
+    d = os.path.join(FIX, "torus444")
+    out = os.path.join(TMP, "open.json")
+    booksim([f"network_file={d}/topo.txt", f"fabric_path_file={d}/paths.txt",
+             "routing_function=src", f"stats_json={out}"])
+    r = json.load(open(out))
+    assert r["run"]["status"] == "ok" and r["run"]["build_commit"], r["run"]
+    assert r["config"]["routing_function"] == "src" and r["config"]["num_vcs"] == 2
+    assert r["traffic_class_0"]["hops_avg"] > 0, r["traffic_class_0"]
+    d = os.path.join(TMP, "msg_basic")                  # from fabric_messages_basic
+    out = os.path.join(TMP, "msg.json")
+    _messages(d, [f"stats_json={out}"])
+    r = json.load(open(out))
+    assert r["messages"]["completion_cycles"] > 0 and r["messages"]["tags"], r["messages"]
+    d = os.path.join(TMP, "msg_ring")                   # from fabric_messages_stall
+    out = os.path.join(TMP, "stall.json")
+    code, _ = _messages(d, ["num_vcs=1", "vc_buf_size=4", "message_stall_cycles=5000",
+                            f"stats_json={out}"], check=False)
+    r = json.load(open(out))
+    assert code == 2 and r["run"]["status"] == "stalled" and r["messages"]["unfinished"] == 4, r
+
+
 TESTS = [make_upstream_test(c) for c in UPSTREAM] + [
     fabric_latency_per_hop, fabric_dor_torus_hops, fabric_src_torus_fixture,
     fabric_switched_terminals, fabric_groupshift, fabric_matrix_errors, fabric_port_gap_error,
@@ -523,7 +549,7 @@ TESTS = [make_upstream_test(c) for c in UPSTREAM] + [
     utils_cdgcheck, utils_torus_twisted_hops, fabric_batch_paced,
     fabric_messages_basic, fabric_messages_endpoints, fabric_messages_stall,
     utils_collective_messages, fabric_messages_ring_allreduce,
-    fabric_link_rates,
+    fabric_link_rates, fabric_stats_json,
 ] + [make_smoke_test(r, x) for r, x in (("lduato", []), ("duato", []), ("updown", []),
                                         ("esc", []), ("ugal", ["ugal_threshold=128"]))]
 

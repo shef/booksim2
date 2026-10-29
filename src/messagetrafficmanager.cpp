@@ -8,6 +8,7 @@
 
 #include "messagetrafficmanager.hpp"
 #include "networks/fabric.hpp"
+#include "stats_json.hpp"
 
 using namespace std;
 
@@ -205,6 +206,10 @@ bool MessageTrafficManager::_SingleSim() {
     for (size_t e = 0; !busy && e < _ready.size(); ++e) busy = !_ready[e].empty();
     if (busy && _time - _last_retire > _stall_cycles) {
       _ReportStall(cout);
+      StatsJson::Set("run", "status", string("stalled"));
+      StatsJson::Set("run", "cycles", (double)_time);
+      StatsJson::Set("messages", "unfinished", (double)(_msgs.size() - _finished));
+      StatsJson::Write();
       exit(2);
     }
   }
@@ -225,6 +230,12 @@ void MessageTrafficManager::_Report(ostream &os) const {
   int active = 0;
   for (size_t e = 0; e < _ep_count.size(); ++e) active += _ep_count[e] > 0;
   double ns = end * _cycle_ns;
+  StatsJson::Set("messages", "count", (double)_msgs.size());
+  StatsJson::Set("messages", "bytes", (double)bytes);
+  StatsJson::Set("messages", "completion_cycles", (double)end);
+  StatsJson::Set("messages", "completion_ns", ns);
+  StatsJson::Set("messages", "throughput_gbps_per_endpoint", ns > 0 ? bytes / ns / active : 0);
+  StatsJson::Set("messages", "endpoints", (double)active);
   os << "Message completion time = " << end << " cycles (" << ns << " ns)" << endl
      << "Message throughput = " << (ns > 0 ? bytes / ns / active : 0)
      << " GB/s per endpoint (" << active << " endpoints)" << endl;
@@ -238,6 +249,13 @@ void MessageTrafficManager::_Report(ostream &os) const {
     if (lo[m.tag] < 0 || m.ready < lo[m.tag]) lo[m.tag] = m.ready;
     hi[m.tag] = max(hi[m.tag], m.finish);
   }
+  ostringstream tags;
+  for (size_t t = 0; t < _tags.size(); ++t) {
+    tags << (t ? ", " : "") << "{\"tag\": " << StatsJson::Quote(_tags[t]) << ", \"messages\": "
+         << n[t] << ", \"bytes\": " << b[t] << ", \"ready\": " << lo[t] << ", \"finish\": "
+         << hi[t] << "}";
+  }
+  StatsJson::SetRaw("messages", "tags", "[" + tags.str() + "]");
   for (size_t t = 0; t < _tags.size(); ++t) {
     os << "Message tag " << _tags[t] << ": " << n[t] << " messages, " << b[t]
        << " bytes, ready " << lo[t] << ", finish " << hi[t] << ", span "
