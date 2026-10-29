@@ -98,11 +98,27 @@ long collectives are simulated for a few steady steps and extrapolated.
 
 Gaps that matter once systems differ, most important first.
 
-- [ ] Mixed link and endpoint rates: per-link bandwidth (scale-up and
-      scale-out links, generations at different rates, half-width links
-      after lane failures) and per-endpoint injection and ejection caps
-      (DMA engines, HBM bandwidth). BookSim moves one flit per cycle on
-      every channel today.
+- [ ] Mixed link and endpoint rates (first: everything below needs it):
+      a per-link rate in the topology file (a link carries a flit every
+      1/rate cycles), and per-endpoint injection and ejection caps (DMA
+      engines, HBM). Scale-up and scale-out links, generations at different
+      rates, half-width links after lane failures, die-to-die links. BookSim
+      moves one flit per cycle on every channel today.
+- [ ] Multi-die chips: a chip as several routers (one per die or chiplet)
+      joined by die-to-die links, with ICI ports, PCIe and HBM attached to
+      specific dies (Ironwood's two compute dies; TPU 8i's two compute
+      chiplets and separate ICI/SerDes chiplet). D2D rates are not
+      published, so sweep them from unlimited (today's model) down to find
+      where results change. Prior work: NUNA (arXiv 2608.00867) for
+      multi-die GPUs.
+- [ ] Study: how much traffic leaves the slice. An analytical model of bytes
+      per chip per step crossing the slice by model size, parallelism
+      layout (data, pipeline, expert parallel across slices) and collective
+      algorithm; then gateway nodes in the topology (chip -> PCIe ~50 GB/s
+      -> host -> NIC, about 25 GB/s per chip on TPU 8t per public figures ->
+      an ideal datacenter switch at NIC rate) and multislice generators
+      (reduce-scatter in slice, all-reduce across slices, all-gather in
+      slice), to find whether PCIe, the NIC or the gateway is the limit.
 - [ ] Realistic workloads: MoE all-to-all with uneven sizes (ragged, skewed
       experts), pipeline-parallel point-to-point, inference traffic for
       TPU 8i (small latency-bound messages, decode steps, KV-cache moves),
