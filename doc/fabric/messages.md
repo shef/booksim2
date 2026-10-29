@@ -214,14 +214,41 @@ step 3) so per-step spans show when a run reaches its steady state.
    about 2%. This is the measurement the NSDI study lacked.
 7. Ring all-reduce time follows the 2(N-1) steps x (S/N)/B formula.
 
+## In-network and near-network compute (design)
+
+Some systems reduce or replicate data outside the main compute units:
+
+| Where | Examples (public) | Effect |
+|---|---|---|
+| On the chip, beside the network | TPU 8i's Collectives Acceleration Engine in its ICI chiplet, which reduces at the package edge (about 5x lower on-chip latency, Hot Chips 2026); TPU 8t SparseCores serving collectives | faster reductions that do not use the main compute units or HBM, possibly as data streams in |
+| In the switch | NVLink SHARP, InfiniBand SHARP | the switch reduces many inputs into one output and replicates results |
+| Replication only | multicast for broadcast and all-gather | one stream in, many copies out |
+
+Plan, in increasing engine change:
+
+1. **Reduction profiles** (generators only): per-system reduction latency and
+   throughput, applied as `delay`; an on-chip engine is a faster profile.
+2. **Streaming dependencies** (engine): `stream=ID` lets a message send each
+   packet once the matching packet of message ID has arrived, instead of
+   waiting for all of it. In-stream reducers work this way; chunking only
+   approximates it, at the cost of more messages.
+3. **Compute terminals** (topology and engine): a `c R N` line gives router
+   R (a switch or a chip) N terminals that act as its reduction and
+   replication engine. They are endpoints that messages can address, and
+   reports count them apart from chips so per-chip throughput stays honest.
+   An in-switch all-reduce is then a tree whose inner nodes are switch
+   compute terminals; multicast is a compute terminal relaying one incoming
+   message as several outgoing ones.
+
+What a given engine does internally (whether it streams, whether it serves
+neighbours or only its own chip) is often not published; such choices
+become parameters with sensitivity runs, as with VC counts.
+
 ## Out of scope for now, noted for later
 
 - Different bandwidths on different links (BookSim moves one flit per
   cycle on every channel; mixed-rate systems would need per-link rates).
 - Priorities or traffic classes per message.
-- In-network reduction (switches that add data, such as NVLink SHARP or
-  InfiniBand SHARP): needs switches that receive, reduce and forward, which
-  the engine's endpoints (chips only) do not cover.
 - Chakra execution-trace import (a converter to this format).
 - Making `traffic = matrix` use the same router-based endpoints (it assumes
   equal terminal counts today).

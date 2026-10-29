@@ -35,8 +35,11 @@ ignores `injection_rate`, so it always runs overloaded.
       all-reduce formula.
 - [x] Tree all-reduce (`msg-tree`, `--double` for NCCL-style double binary
       trees), for switched fabrics and latency-bound sizes.
-- [ ] In-network reduction (switches that reduce, as in NVLink SHARP):
-      switch endpoints that receive, reduce and forward.
+- [ ] In-network and near-network compute ([design](fabric/messages.md#in-network-and-near-network-compute-design)):
+      reduction profiles per system (on-chip engines such as TPU 8i's
+      Collectives Acceleration Engine and SparseCores); `stream=`
+      dependencies for in-stream reduction; compute terminals (`c R N`) so
+      switches can reduce and replicate (NVLink SHARP, multicast).
 - [ ] Rerun the NSDI Table 2 comparison as a fixed-bytes all-to-all and
       compare with the busiest-link bound.
 - [ ] Chakra execution-trace import (MLCommons; used by ASTRA-sim).
