@@ -43,20 +43,44 @@ MessageTrafficManager::MessageTrafficManager(const Configuration &config,
 }
 
 void MessageTrafficManager::_ReadEndpoints() {
-  vector<int> first, count;
-  FabricTerminals(&first, &count);
+  vector<int> first, count, compute;
+  FabricTerminals(&first, &count, &compute);
   if (first.empty()) {  // not a fabric network: one endpoint per node
     for (int n = 0; n < _nodes; ++n) {
       first.push_back(n);
       count.push_back(1);
+      compute.push_back(0);
     }
   }
+  _routers_n = first.size();
   _node_ep.assign(_nodes, -1);
-  for (size_t r = 0; r < first.size(); ++r) {
-    _ep_first.push_back(first[r]);
-    _ep_count.push_back(count[r]);
-    for (int t = 0; t < count[r]; ++t) _node_ep[first[r] + t] = r;
+  _ep_first.assign(2 * _routers_n, 0);
+  _ep_count.assign(2 * _routers_n, 0);
+  for (int r = 0; r < _routers_n; ++r) {
+    _ep_first[r] = first[r];
+    _ep_count[r] = count[r];
+    _ep_first[_routers_n + r] = first[r] + count[r];
+    _ep_count[_routers_n + r] = compute[r];
+    for (int t = 0; t < count[r] + compute[r]; ++t)
+      _node_ep[first[r] + t] = t < count[r] ? r : _routers_n + r;
   }
+}
+
+// "R" is router R's own terminals, "cR" its compute terminals; -1 if bad.
+int MessageTrafficManager::_ParseEndpoint(const string &tok) const {
+  bool compute = !tok.empty() && tok[0] == 'c';
+  string digits = compute ? tok.substr(1) : tok;
+  if (digits.empty() || digits.find_first_not_of("0123456789") != string::npos) return -1;
+  int r = atoi(digits.c_str());
+  if (r < 0 || r >= _routers_n) return -1;
+  return compute ? _routers_n + r : r;
+}
+
+string MessageTrafficManager::_EndpointName(int ep) const {
+  ostringstream os;
+  if (ep >= _routers_n) os << 'c' << ep - _routers_n;
+  else os << ep;
+  return os.str();
 }
 
 void MessageTrafficManager::_ReadMessages(const string &file) {
@@ -75,13 +99,14 @@ void MessageTrafficManager::_ReadMessages(const string &file) {
     if (!(ss >> m.id)) continue;  // blank or comment
     ostringstream where;
     where << file << ":" << lineno << ": ";
-    if (!(ss >> m.src >> m.dst >> m.bytes)) Fail(where.str() + "expected: id src dst bytes");
+    string src_tok, dst_tok;
+    if (!(ss >> src_tok >> dst_tok >> m.bytes)) Fail(where.str() + "expected: id src dst bytes");
     if (!_msgs.empty() && m.id <= _msgs.back().id) Fail(where.str() + "ids must increase");
-    int nep = _ep_first.size();
-    if (m.src < 0 || m.src >= nep || m.dst < 0 || m.dst >= nep)
-      Fail(where.str() + "endpoint out of range");
+    m.src = _ParseEndpoint(src_tok);
+    m.dst = _ParseEndpoint(dst_tok);
+    if (m.src < 0 || m.dst < 0) Fail(where.str() + "endpoint out of range: " + src_tok + " " + dst_tok);
     if (_ep_count[m.src] == 0 || _ep_count[m.dst] == 0)
-      Fail(where.str() + "endpoint has no terminals (a switch)");
+      Fail(where.str() + "endpoint has no terminals (a switch, or no compute terminals)");
     if (m.src == m.dst) Fail(where.str() + "source and destination are the same");
     if (m.bytes <= 0) Fail(where.str() + "bytes must be positive");
     vector<int> deps, streams;
@@ -189,7 +214,10 @@ int MessageTrafficManager::_IssuePacket(int source, int cl) {
   Message &m = _msgs[i];
   int t = source - _ep_first[ep];
   _next_msg[source] = i;
-  _next_dest[source] = _ep_first[m.dst] + t % _ep_count[m.dst];
+  // Rotate destination terminals per packet so each message spreads over
+  // all of them (several single-terminal chips can feed one multi-terminal
+  // endpoint at full rate).
+  _next_dest[source] = _ep_first[m.dst] + (t + m.issued) % _ep_count[m.dst];
   _next_size[source] = m.issued == m.packets - 1 ? m.last_size : _packet_size;
   if (m.issued == 0) m.first_inject = _time;
   if (++m.issued >= _Allowed(m)) {  // done, or waiting for streamed data
@@ -242,8 +270,15 @@ bool MessageTrafficManager::_SingleSim() {
   }
   long long bytes = 0;
   for (size_t i = 0; i < _msgs.size(); ++i) bytes += _msgs[i].bytes;
-  cout << "Messages: " << _msgs.size() << " (" << bytes << " bytes) between "
-       << _ep_first.size() << " endpoints" << endl;
+  int chips = 0, engines = 0;
+  for (int e = 0; e < _routers_n; ++e) {
+    chips += _ep_count[e] > 0;
+    engines += _ep_count[_routers_n + e] > 0;
+  }
+  cout << "Messages: " << _msgs.size() << " (" << bytes << " bytes) between " << chips
+       << " endpoints" << (engines ? " and compute terminals on " : "");
+  if (engines) cout << engines << " routers";
+  cout << endl;
   _last_retire = _time;
   while (_finished < (int)_msgs.size()) {
     _Release();
@@ -273,8 +308,8 @@ void MessageTrafficManager::_Report(ostream &os) const {
     bytes += _msgs[i].bytes;
     end = max(end, _msgs[i].finish);
   }
-  int active = 0;
-  for (size_t e = 0; e < _ep_count.size(); ++e) active += _ep_count[e] > 0;
+  int active = 0;  // chips; compute terminals do not count
+  for (int e = 0; e < _routers_n; ++e) active += _ep_count[e] > 0;
   double ns = end * _cycle_ns;
   StatsJson::Set("messages", "count", (double)_msgs.size());
   StatsJson::Set("messages", "bytes", (double)bytes);
@@ -326,7 +361,8 @@ void MessageTrafficManager::_ReportStall(ostream &os) const {
   for (size_t i = 0; i < _msgs.size() && shown < 20; ++i) {
     const Message &m = _msgs[i];
     if (m.finish >= 0 || m.issued == 0) continue;
-    os << "  message " << m.id << " (" << _tags[m.tag] << ") " << m.src << " -> " << m.dst
+    os << "  message " << m.id << " (" << _tags[m.tag] << ") " << _EndpointName(m.src) << " -> "
+       << _EndpointName(m.dst)
        << ": " << m.issued << " of " << m.packets << " packets sent, " << m.retired
        << " delivered" << endl;
     ++shown;

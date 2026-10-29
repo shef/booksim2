@@ -23,9 +23,17 @@ The router count, then one record per line; `#` starts a comment.
 4                     # routers
 t 3 0                 # router 3 has no terminals (a switch)
 t 2 4 0.25            # router 2 has 4 terminals, each limited to 0.25 flits/cycle
+c 3 4                 # router 3 has 4 compute terminals (an in-switch engine)
 0 1 3 1 0 10          # U PORT_U V PORT_V KIND LATENCY: a bidirectional link
 0 2 2 1 2 1080 0.125  # ... with an optional RATE in flits per cycle each way
 ```
+
+Compute terminals (`c R N [RATE]`) are terminals that model an
+in-network reduce and replicate engine on router R, usually a switch. They
+come after the router's other terminals in node numbering; message files
+address them as `cR` (doc/fabric/messages.md), and per-chip statistics leave
+them out. Open-loop traffic patterns treat them as ordinary nodes, so use
+them with `sim_type = messages`.
 
 Rates (optional, `0 < RATE <= 1`, default 1) model links slower than the
 fabric's flit-per-cycle base rate, such as PCIe or NIC links beside ICI,

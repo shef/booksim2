@@ -60,6 +60,8 @@ std::vector<int> gTerms;       // [router] terminal count
 std::vector<int> gFirstNode;   // [router] first node id
 std::vector<int> gNodeRouter;  // [node] router
 std::vector<double> gTermRate; // [router] terminal rate, flits per cycle
+std::vector<int> gCompute;        // [router] compute terminals (last in its range)
+std::vector<double> gComputeRate; // [router] their rate
 std::vector<std::vector<int> > gPortPeer;     // [router][link port] neighbour router
 std::vector<std::vector<double> > gPortRate;  // [router][link port] rate
 std::vector<std::vector<int> > gPortKind;  // [router][link port] kind
@@ -328,6 +330,9 @@ namespace {
 //   t ROUTER TERMINALS [RATE]          terminal count for one router, and
 //                                      optionally each terminal's injection
 //                                      and ejection rate (0 < RATE <= 1)
+//   c ROUTER TERMINALS [RATE]          compute terminals (in-network reduce
+//                                      and replicate engines), after the
+//                                      router's other terminals
 //   U PORT_U V PORT_V KIND LATENCY [RATE]
 //                                      a bidirectional link; RATE in flits
 //                                      per cycle each way, 0 < RATE <= 1
@@ -335,7 +340,9 @@ struct Link { int u, pu, v, pv, kind, lat; double rate; };
 
 void ReadTopology(const std::string &file, int default_terms, int *routers,
                   std::vector<int> *terms, std::vector<Link> *links,
-                  std::vector<double> *term_rate = NULL) {
+                  std::vector<double> *term_rate = NULL,
+                  std::vector<int> *compute = NULL,
+                  std::vector<double> *compute_rate = NULL) {
   std::ifstream in(file.c_str());
   if (!in) {
     std::cerr << "fabric: cannot open network_file " << file << std::endl;
@@ -353,6 +360,19 @@ void ReadTopology(const std::string &file, int default_terms, int *routers,
       assert(*routers > 0);
       terms->assign(*routers, default_terms);
       if (term_rate) term_rate->assign(*routers, 1.0);
+      if (compute) compute->assign(*routers, 0);
+      if (compute_rate) compute_rate->assign(*routers, 1.0);
+    } else if (first == "c") {
+      int r, n;
+      ss >> r >> n;
+      assert(ss && r >= 0 && r < *routers && n >= 0);
+      double rate = 1.0;
+      if (ss >> rate && !(rate > 0.0 && rate <= 1.0)) {
+        std::cerr << "fabric: compute terminal rate must be in (0, 1]: " << line << std::endl;
+        exit(-1);
+      }
+      if (compute) (*compute)[r] = n;
+      if (compute_rate) (*compute_rate)[r] = rate;
     } else if (first == "t") {
       int r, n;
       ss >> r >> n;
@@ -388,7 +408,8 @@ void Fabric::_ComputeSize(const Configuration &config) {
   _topo_file = config.GetStr("network_file");
   std::vector<Link> links;
   ReadTopology(_topo_file, config.GetInt("fabric_terminals"), &gRouters, &gTerms, &links,
-               &gTermRate);
+               &gTermRate, &gCompute, &gComputeRate);
+  for (int r = 0; r < gRouters; ++r) gTerms[r] += gCompute[r];  // compute terminals last
   gFirstNode.assign(gRouters, 0);
   gNodeRouter.clear();
   for (int r = 0; r < gRouters; ++r) {
@@ -426,12 +447,17 @@ void Fabric::WriteLinkUtil(const std::string &file, long long cycles) const {
 }
 
 double Fabric::TerminalRate(int node) const {
-  return gTermRate.empty() ? 1.0 : gTermRate[gNodeRouter[node]];
+  if (gTermRate.empty()) return 1.0;
+  int r = gNodeRouter[node];
+  return node - gFirstNode[r] < gTerms[r] - gCompute[r] ? gTermRate[r] : gComputeRate[r];
 }
 
-void FabricTerminals(std::vector<int> *first, std::vector<int> *count) {
+void FabricTerminals(std::vector<int> *first, std::vector<int> *count,
+                     std::vector<int> *compute) {
   *first = gFirstNode;
   *count = gTerms;
+  *compute = gCompute;
+  for (size_t r = 0; r < count->size(); ++r) (*count)[r] -= (*compute)[r];
 }
 
 void Fabric::_BuildNet(const Configuration &config) {
@@ -470,7 +496,8 @@ void Fabric::_BuildNet(const Configuration &config) {
       int n = gFirstNode[r] + t;
       _routers[r]->AddInputChannel(_inject[n], _inject_cred[n]);
       _routers[r]->AddOutputChannel(_eject[n], _eject_cred[n]);
-      if (gTermRate[r] < 1.0) _routers[r]->SetOutputRate(t, gTermRate[r]);
+      double rate = t < gTerms[r] - gCompute[r] ? gTermRate[r] : gComputeRate[r];
+      if (rate < 1.0) _routers[r]->SetOutputRate(t, rate);
     }
     gPortKind[r].push_back(kNone);
     for (int p = 1; p <= nlinks; ++p) {

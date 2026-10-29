@@ -47,9 +47,9 @@ messages.
 - **Finish time**: when the tail flit of its last packet is ejected at the
   destination.
 - **Injection**: a message's packets are spread over its source endpoint's
-  terminals round robin, and each goes to the destination terminal with the
-  same index modulo the destination's terminal count, so one chip drives all
-  its injection ports, as a DMA engine would. A terminal with several ready
+  terminals round robin, and over the destination's terminals in rotation,
+  so one chip drives all its injection ports, as a DMA engine would, and
+  several chips can feed one multi-terminal endpoint at full rate. A terminal with several ready
   messages interleaves their packets round robin, one packet at a time
   (fair sharing, no message starves). Packets go out as fast as the
   terminal and network accept them; there is no rate parameter, because the
@@ -85,7 +85,8 @@ One message per line; `#` starts a comment.
 
 - `id`: integers in increasing order. A dependency must name an earlier id,
   so the dependency graph cannot have a cycle.
-- `src`, `dst`: endpoint (router) indices; must have terminals and differ.
+- `src`, `dst`: endpoint (router) indices, or `cR` for router R's compute
+  terminals; must have terminals and differ.
 - `tag`: groups messages for reporting, typically a collective step or
   phase. Tags are free text without spaces.
 - `stream`: earlier messages this one forwards as they arrive. Its k-th
@@ -240,9 +241,12 @@ Plan, in increasing engine change:
    each packet once the matching packet of message ID has arrived, instead
    of waiting for all of it. In-stream reducers work this way; chunking only
    approximates it, at the cost of more messages.
-3. **Compute terminals** (topology and engine): a `c R N` line gives router
-   R (a switch or a chip) N terminals that act as its reduction and
-   replication engine. They are endpoints that messages can address, and
+3. **Compute terminals** (implemented; test `fabric_compute_terminals`): a
+   `c R N` line gives router R (a switch or a chip) N terminals that act as
+   its reduction and replication engine; messages address them as `cR`. On
+   four chips around one switch, an in-switch all-reduce (chips stream into
+   the engine, the engine streams the result back) took 905 cycles against
+   1,373 for a ring, as expected from S against 1.5 S per chip link. They are endpoints that messages can address, and
    reports count them apart from chips so per-chip throughput stays honest.
    An in-switch all-reduce is then a tree whose inner nodes are switch
    compute terminals; multicast is a compute terminal relaying one incoming

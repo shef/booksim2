@@ -35,7 +35,9 @@ class MessageTrafficManager : public TrafficManager {
   std::vector<Message> _msgs;
   std::vector<std::string> _tags;
 
-  // Endpoints: routers with terminals (fabric), else every node.
+  // Endpoints: routers with terminals (fabric), else every node; then each
+  // router's compute terminals as endpoint R + r, written cR in files.
+  int _routers_n;
   std::vector<int> _ep_first, _ep_count;  // [endpoint] node range
   std::vector<int> _node_ep;              // [node] endpoint
 
@@ -61,6 +63,8 @@ class MessageTrafficManager : public TrafficManager {
   long long _last_retire;
 
   void _ReadEndpoints();
+  int _ParseEndpoint(const std::string &tok) const;
+  std::string _EndpointName(int ep) const;
   void _ReadMessages(const std::string &file);
   void _Release();
   int _Allowed(const Message &m) const;

@@ -42,8 +42,10 @@ ignores `injection_rate`, so it always runs overloaded.
       reduction profiles per system (on-chip engines such as TPU 8i's
       Collectives Acceleration Engine and SparseCores); `stream=`
       dependencies for in-stream reduction (done: test
-      `fabric_messages_stream`); compute terminals (`c R N`) so switches
-      can reduce and replicate (NVLink SHARP, multicast).
+      `fabric_messages_stream`); compute terminals (`c R N`, done: test
+      `fabric_compute_terminals`) so switches can reduce and replicate
+      (NVLink SHARP, multicast). Next: reduction profiles and generators
+      that use them (in-switch trees, relay multicast).
 - [ ] Multicast by relay replication: copies made at compute terminals,
       forwarded packet by packet with `stream=`; compared against unicast
       emulation (the source sends N copies, an upper bound). BookSim has no

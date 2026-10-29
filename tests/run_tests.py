@@ -603,6 +603,39 @@ def fabric_messages_stream():
     assert per[1][1] < per[0][2] / 2, per         # but starts early
 
 
+def fabric_compute_terminals():
+    """Compute terminals (`c R N`) let a switch reduce: four chips stream
+    their data into the switch's engine, which streams the result back.
+    Each chip's link then carries S once each way, against 2(n-1)/n S = 1.5 S
+    for a ring all-reduce over the same chips, so it is about a third
+    faster; messages address compute terminals as cR."""
+    S, n = 160000, 4
+    topo = f"5\nt 4 0\nc 4 {n}\n" + "".join(f"{i} 1 4 {i + 1} 0 10\n" for i in range(n))
+    paths = "".join(f"{i} 4 1 1 0\n4 {i} 1 {i + 1} 0\n" for i in range(n))
+    paths += "".join(f"{i} {j} 2 1 0 {j + 1} 0\n" for i in range(n) for j in range(n) if i != j)
+    up = "".join(f"{i} {i} c4 {S}\n" for i in range(n))
+    down = "".join(f"{n + j} c4 {j} {S} stream={','.join(map(str, range(n)))} delay=20\n"
+                   for j in range(n))
+    d = _write(os.path.join(TMP, "innet"), topo=topo, paths=paths, msgs=up + down)
+    t_net, _, out = _messages(d)
+    assert "compute terminals on 1 routers" in out, out[:2000]
+    ring, mid, prev = [], 0, [None] * n            # unidirectional ring, 2(n-1) steps
+    for k in range(2 * (n - 1)):
+        got = [None] * n
+        for i in range(n):
+            dep = f" after={prev[i]}" if prev[i] is not None else ""
+            ring.append(f"{mid} {i} {(i + 1) % n} {S // n}{dep}\n")
+            got[(i + 1) % n] = mid
+            mid += 1
+        prev = got
+    _write(d, msgs="".join(ring))
+    t_ring, _, _ = _messages(d)
+    assert t_net < 0.8 * t_ring, (t_net, t_ring)
+    _write(d, msgs="0 0 c3 100\n")
+    code, out = _messages(d, check=False)
+    assert code != 0 and "no compute terminals" in out, out[-500:]
+
+
 TESTS = [make_upstream_test(c) for c in UPSTREAM] + [
     fabric_latency_per_hop, fabric_dor_torus_hops, fabric_src_torus_fixture,
     fabric_switched_terminals, fabric_groupshift, fabric_matrix_errors, fabric_port_gap_error,
@@ -612,6 +645,7 @@ TESTS = [make_upstream_test(c) for c in UPSTREAM] + [
     utils_collective_messages, fabric_messages_ring_allreduce,
     fabric_link_rates, fabric_stats_json, utils_harness,
     fabric_link_util, fabric_messages_stream,
+    fabric_compute_terminals,
 ] + [make_smoke_test(r, x) for r, x in (("lduato", []), ("duato", []), ("updown", []),
                                         ("esc", []), ("ugal", ["ugal_threshold=128"]))]
 

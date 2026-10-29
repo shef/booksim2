@@ -75,10 +75,12 @@ public:
   static void RegisterRoutingFunctions();
 };
 
-// Terminal range of each router in the fabric network built last: router r
-// owns nodes first[r] .. first[r] + count[r] - 1 (count 0 for a switch).
-// Both are left empty if no fabric network has been built.
-void FabricTerminals(std::vector<int> *first, std::vector<int> *count);
+// Terminal ranges in the fabric network built last: router r's own
+// terminals are nodes first[r] .. first[r] + count[r] - 1 (count 0 for a
+// switch), followed by compute[r] compute terminals. All are left empty if no
+// fabric network has been built.
+void FabricTerminals(std::vector<int> *first, std::vector<int> *count,
+                     std::vector<int> *compute);
 
 void esc_fabric(const Router *r, const Flit *f, int in_channel, OutputSet *outputs, bool inject);
 void updown_fabric(const Router *r, const Flit *f, int in_channel, OutputSet *outputs,
