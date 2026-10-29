@@ -580,6 +580,29 @@ def fabric_link_util():
     assert links["count"] == 4 and 0 < links["max_utilization"] <= 1, links
 
 
+def fabric_messages_stream():
+    """stream= forwards packet by packet: relaying 0 -> 1 -> 2 takes about
+    one message time with stream= and two with after=; delay= applies to
+    each streamed packet; a dependent of a different size sends its share
+    in step with the source."""
+    paths = "0 1 1 1 0\n1 0 1 1 0\n0 2 2 1 0 2 0\n2 0 2 1 0 1 0\n1 2 1 2 0\n2 1 1 1 0\n"
+    d = _write(os.path.join(TMP, "stream"), topo=LINE_TOPO, paths=paths, msgs="0 0 1 160000\n")
+    one, _, _ = _messages(d)
+    _write(d, msgs="0 0 1 160000\n1 1 2 160000 after=0\n")
+    whole, _, _ = _messages(d)
+    _write(d, msgs="0 0 1 160000\n1 1 2 160000 stream=0\n")
+    stream, _, _ = _messages(d)
+    assert abs(whole - 2 * one) < 0.03 * whole, (one, whole)
+    assert stream < one * 1.15, (one, stream)
+    _write(d, msgs="0 0 1 160000\n1 1 2 160000 stream=0 delay=300\n")
+    delayed, _, _ = _messages(d)
+    assert abs(delayed - stream - 300) <= 5, (stream, delayed)
+    _write(d, msgs="0 0 1 160000\n1 1 2 80000 stream=0\n")
+    half, per, _ = _messages(d)
+    assert per[1][2] - per[0][2] < 60, per        # finishes with its source
+    assert per[1][1] < per[0][2] / 2, per         # but starts early
+
+
 TESTS = [make_upstream_test(c) for c in UPSTREAM] + [
     fabric_latency_per_hop, fabric_dor_torus_hops, fabric_src_torus_fixture,
     fabric_switched_terminals, fabric_groupshift, fabric_matrix_errors, fabric_port_gap_error,
@@ -588,7 +611,7 @@ TESTS = [make_upstream_test(c) for c in UPSTREAM] + [
     fabric_messages_basic, fabric_messages_endpoints, fabric_messages_stall,
     utils_collective_messages, fabric_messages_ring_allreduce,
     fabric_link_rates, fabric_stats_json, utils_harness,
-    fabric_link_util,
+    fabric_link_util, fabric_messages_stream,
 ] + [make_smoke_test(r, x) for r, x in (("lduato", []), ("duato", []), ("updown", []),
                                         ("esc", []), ("ugal", ["ugal_threshold=128"]))]
 

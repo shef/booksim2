@@ -84,7 +84,7 @@ void MessageTrafficManager::_ReadMessages(const string &file) {
       Fail(where.str() + "endpoint has no terminals (a switch)");
     if (m.src == m.dst) Fail(where.str() + "source and destination are the same");
     if (m.bytes <= 0) Fail(where.str() + "bytes must be positive");
-    vector<int> deps;
+    vector<int> deps, streams;
     double delay_ns = 0;
     string tag = "-", field;
     while (ss >> field) {
@@ -98,6 +98,15 @@ void MessageTrafficManager::_ReadMessages(const string &file) {
           if (d.empty() || it == index.end())
             Fail(where.str() + "after= must name earlier message ids: " + d);
           deps.push_back(it->second);
+        }
+      } else if (key == "stream") {
+        istringstream ds(val);
+        string d;
+        while (getline(ds, d, ',')) {
+          map<int, int>::const_iterator it = index.find(atoi(d.c_str()));
+          if (d.empty() || it == index.end())
+            Fail(where.str() + "stream= must name earlier message ids: " + d);
+          streams.push_back(it->second);
         }
       } else if (key == "delay") {
         delay_ns = atof(val.c_str());
@@ -115,6 +124,7 @@ void MessageTrafficManager::_ReadMessages(const string &file) {
     m.deps_left = deps.size();
     m.delay = (long long)llround(delay_ns / _cycle_ns);
     m.ready = m.first_inject = m.finish = -1;
+    m.released = m.listed = false;
     map<string, int>::const_iterator t = tag_index.find(tag);
     if (t == tag_index.end()) {
       t = tag_index.insert(make_pair(tag, (int)_tags.size())).first;
@@ -124,17 +134,48 @@ void MessageTrafficManager::_ReadMessages(const string &file) {
     int i = _msgs.size();
     index[m.id] = i;
     for (size_t k = 0; k < deps.size(); ++k) _msgs[deps[k]].dependents.push_back(i);
+    for (size_t k = 0; k < streams.size(); ++k) {
+      m.streams.push_back(make_pair(streams[k], 0));
+      _msgs[streams[k]].stream_dependents.push_back(make_pair(i, (int)k));
+    }
     _msgs.push_back(m);
   }
   if (_msgs.empty()) Fail("message_file " + file + " has no messages");
 }
 
-// Move messages whose ready time has come to their source's ready list.
+// Packets a message may have sent so far: all of them, or with stream=
+// sources the least granted share (granted / source packets) of its own.
+int MessageTrafficManager::_Allowed(const Message &m) const {
+  long long allowed = m.packets;
+  for (size_t k = 0; k < m.streams.size(); ++k) {
+    const Message &s = _msgs[m.streams[k].first];
+    allowed = min(allowed, (long long)m.streams[k].second * m.packets / s.packets);
+  }
+  return allowed;
+}
+
+// Put a released message in its source's ready list if it may send.
+void MessageTrafficManager::_Requeue(int i) {
+  Message &m = _msgs[i];
+  if (m.released && !m.listed && m.issued < _Allowed(m)) {
+    _ready[m.src].push_back(i);
+    m.listed = true;
+  }
+}
+
+// Release messages whose ready time has come, and apply streamed grants.
 void MessageTrafficManager::_Release() {
   while (!_pending.empty() && _pending.top().first <= _time) {
     int i = _pending.top().second;
     _pending.pop();
-    _ready[_msgs[i].src].push_back(i);
+    _msgs[i].released = true;
+    _Requeue(i);
+  }
+  while (!_grants.empty() && _grants.top().first <= _time) {
+    int i = _grants.top().second.first, slot = _grants.top().second.second;
+    _grants.pop();
+    ++_msgs[i].streams[slot].second;
+    _Requeue(i);
   }
 }
 
@@ -151,8 +192,9 @@ int MessageTrafficManager::_IssuePacket(int source, int cl) {
   _next_dest[source] = _ep_first[m.dst] + t % _ep_count[m.dst];
   _next_size[source] = m.issued == m.packets - 1 ? m.last_size : _packet_size;
   if (m.issued == 0) m.first_inject = _time;
-  if (++m.issued == m.packets) {
+  if (++m.issued >= _Allowed(m)) {  // done, or waiting for streamed data
     ready.erase(ready.begin() + rr);  // rr now points at the next message
+    m.listed = false;
   } else {
     ++rr;
   }
@@ -174,6 +216,10 @@ void MessageTrafficManager::_RetireFlit(Flit *f, int dest) {
   _last_retire = _time;
   if (!f->tail) return;
   Message &m = _msgs[_pid_msg[f->pid]];
+  for (size_t k = 0; k < m.stream_dependents.size(); ++k) {
+    int d = m.stream_dependents[k].first;
+    _grants.push(make_pair(_time + _msgs[d].delay, make_pair(d, m.stream_dependents[k].second)));
+  }
   if (++m.retired < m.packets) return;
   m.finish = _time;
   ++_finished;

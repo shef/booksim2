@@ -75,7 +75,7 @@ endpoint so they compare directly with hardware measurements.
 One message per line; `#` starts a comment.
 
 ```
-# id  src  dst  bytes   [after=ID,ID,...] [delay=NS] [tag=NAME]
+# id  src  dst  bytes   [after=ID,...] [stream=ID,...] [delay=NS] [tag=NAME]
 0     0    1    262144  tag=rs0
 1     1    2    262144  tag=rs0
 2     1    2    262144  after=0 delay=50 tag=rs1
@@ -86,6 +86,12 @@ One message per line; `#` starts a comment.
 - `src`, `dst`: endpoint (router) indices; must have terminals and differ.
 - `tag`: groups messages for reporting, typically a collective step or
   phase. Tags are free text without spaces.
+- `stream`: earlier messages this one forwards as they arrive. Its k-th
+  share of packets may go once the same share of each stream source has
+  been delivered (shares scale by packet counts, so sizes may differ), plus
+  `delay` per packet. Models cut-through reduction and relaying (in-switch
+  or on-chip engines, multicast by relay); `after=` waits for whole
+  messages instead.
 
 A global barrier is a message list's dependencies; collectives rarely need
 more than a handful per message (a ring step depends on one incoming
@@ -228,9 +234,9 @@ Plan, in increasing engine change:
 
 1. **Reduction profiles** (generators only): per-system reduction latency and
    throughput, applied as `delay`; an on-chip engine is a faster profile.
-2. **Streaming dependencies** (engine): `stream=ID` lets a message send each
-   packet once the matching packet of message ID has arrived, instead of
-   waiting for all of it. In-stream reducers work this way; chunking only
+2. **Streaming dependencies** (implemented): `stream=ID` lets a message send
+   each packet once the matching packet of message ID has arrived, instead
+   of waiting for all of it. In-stream reducers work this way; chunking only
    approximates it, at the cost of more messages.
 3. **Compute terminals** (topology and engine): a `c R N` line gives router
    R (a switch or a chip) N terminals that act as its reduction and

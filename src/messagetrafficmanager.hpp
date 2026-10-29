@@ -25,6 +25,11 @@ class MessageTrafficManager : public TrafficManager {
     long long delay;         // cycles after the last dependency finishes
     long long ready, first_inject, finish;  // cycles, -1 until known
     std::vector<int> dependents;
+    // stream=: (source message, packets of it granted so far); this message
+    // may send a share of its packets equal to the least granted share.
+    std::vector<std::pair<int, int> > streams;
+    std::vector<std::pair<int, int> > stream_dependents;  // (message, slot)
+    bool released, listed;  // after= deps done (+delay); in a ready list
   };
 
   std::vector<Message> _msgs;
@@ -40,6 +45,11 @@ class MessageTrafficManager : public TrafficManager {
                       std::vector<std::pair<long long, int> >,
                       std::greater<std::pair<long long, int> > > _pending;  // (ready, msg)
 
+  // (time, message, stream slot): a streamed packet's grant comes due
+  std::priority_queue<std::pair<long long, std::pair<int, int> >,
+                      std::vector<std::pair<long long, std::pair<int, int> > >,
+                      std::greater<std::pair<long long, std::pair<int, int> > > > _grants;
+
   std::vector<int> _next_msg, _next_dest, _next_size;  // [node] packet being generated
   std::vector<int> _pid_msg;                           // [packet id] message
 
@@ -53,6 +63,8 @@ class MessageTrafficManager : public TrafficManager {
   void _ReadEndpoints();
   void _ReadMessages(const std::string &file);
   void _Release();
+  int _Allowed(const Message &m) const;
+  void _Requeue(int i);
   void _Report(std::ostream &os) const;
   void _ReportStall(std::ostream &os) const;
 
