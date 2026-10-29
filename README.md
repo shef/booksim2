@@ -34,6 +34,8 @@ virtual channels prevent deadlock.
 
 ![All-reduce on a 4x4x4 torus](doc/media/torus-allreduce.svg)
 
+Plans and progress: [doc/ROADMAP.md](doc/ROADMAP.md).
+
 Documentation: [doc/README.md](doc/README.md): the simulator (file formats,
 routing functions, options), one page per modelled system with its sources
 and assumptions, and studies. Example: [src/examples/fabric](src/examples/fabric).
