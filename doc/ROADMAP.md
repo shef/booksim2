@@ -166,7 +166,8 @@ Gaps that matter once systems differ, most important first.
 From [viewer/README.md](viewer/README.md).
 
 - [x] Scenes, animated SVGs, VC teaching scenes, docs and previews.
-- [ ] Test that scenes build and every path follows real links.
+- [x] Test that scenes rebuild exactly and every path follows real links
+      (`utils_viewer_scenes`).
 - [ ] GitHub Pages (makes the viewer public; owner's decision).
 - [ ] Less cluttered Boardfly copper; bytes per step in the Now panel.
 - [ ] Real-time mode with modelled latencies; side-by-side comparison.

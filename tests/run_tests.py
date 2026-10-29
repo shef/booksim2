@@ -681,6 +681,28 @@ def fabric_multicast_relay():
     assert t["relay"] < t["unicast"] / 4, t
 
 
+def utils_viewer_scenes():
+    """scenes.py rebuilds the viewer's committed scene files exactly, and in
+    every fabric scene each transfer moves only along links of the scene."""
+    import json
+    out = os.path.join(TMP, "scenes")
+    exporter("scenes.py", out)
+    data = os.path.join(ROOT, "doc", "viewer", "data")
+    for name in sorted(os.listdir(data)):
+        with open(os.path.join(data, name)) as f:
+            committed = f.read()
+        with open(os.path.join(out, name)) as f:
+            assert f.read() == committed, f"{name} differs from scenes.py output"
+        scene = json.loads(committed)
+        if scene.get("type") == "ring":
+            continue
+        links = {frozenset((u, v)) for u, v, *_ in scene["links"]}
+        for ev in scene["events"]:
+            path = ev[3]
+            for a, b in zip(path, path[1:]):
+                assert frozenset((a, b)) in links, (name, a, b)
+
+
 TESTS = [make_upstream_test(c) for c in UPSTREAM] + [
     fabric_latency_per_hop, fabric_dor_torus_hops, fabric_src_torus_fixture,
     fabric_switched_terminals, fabric_groupshift, fabric_matrix_errors, fabric_port_gap_error,
@@ -691,7 +713,7 @@ TESTS = [make_upstream_test(c) for c in UPSTREAM] + [
     fabric_link_rates, fabric_stats_json, utils_harness,
     fabric_link_util, fabric_messages_stream,
     fabric_compute_terminals, fabric_eject_any, fabric_multipath,
-    fabric_multicast_relay,
+    fabric_multicast_relay, utils_viewer_scenes,
 ] + [make_smoke_test(r, x) for r, x in (("lduato", []), ("duato", []), ("updown", []),
                                         ("esc", []), ("ugal", ["ugal_threshold=128"]))]
 
