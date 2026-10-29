@@ -38,6 +38,10 @@ all-to-all where each chip sends S / N to every other chip.
                      exchange within trays, then groups, then across groups
   msg-rings          bidirectional ring all-reduce over up to K edge-disjoint
                      Hamiltonian cycles of a topology file
+  msg-tree           tree all-reduce over the endpoints: the whole buffer is
+                     reduced up a binary tree and broadcast back down, chunk
+                     by chunk (use --chunks to pipeline); --double splits it
+                     over two complementary trees (NCCL's double binary tree)
 
   --chunks C splits the work into C independent pipelines; --reduce-gbps R
   adds the time to reduce received data (bytes / R) before forwarding it.
@@ -49,6 +53,8 @@ usage: collectives.py torus-rings OUT [--dims X Y Z] [--twisted]
        collectives.py msg-torus OUT --bytes S [--dims X Y Z] [COMMON]
        collectives.py msg-boardfly OUT --bytes S [--groups G] [COMMON]
        collectives.py msg-rings OUT TOPO_FILE --bytes S [--k K] [COMMON]
+       collectives.py msg-tree OUT --bytes S (--endpoints N | --topo TOPO_FILE)
+                      [--double] [COMMON]
          COMMON: [--chunks C] [--reduce-gbps R]
 """
 
@@ -284,6 +290,46 @@ def msg_rings(sch, cycles, nbytes, reduce_gbps=0):
             allreduce(sch, [([c[::direction]], "ring")], nbytes / (2 * len(cycles)), reduce_gbps)
 
 
+def binary_tree(order):
+    """parent of each endpoint in a binary tree over `order` (heap layout:
+    order[0] is the root, order[i]'s parent is order[(i - 1) // 2])."""
+    return {order[i]: (order[(i - 1) // 2] if i else None) for i in range(len(order))}
+
+
+def msg_tree(sch, parent, nbytes, reduce_gbps=0, tag="tree"):
+    """Reduce nbytes up the tree, then broadcast down. A node sends up once
+    all its children's data has arrived (plus reduction time), and down once
+    its parent's has; the root turns the reduction around."""
+    children = {m: [] for m in parent}
+    for m, p in parent.items():
+        if p is not None:
+            children[p].append(m)
+    delay = round(nbytes / reduce_gbps) if reduce_gbps else 0
+    up = {}                                   # node -> its message to the parent
+    def send_up(m):
+        for c in children[m]:
+            send_up(c)
+        deps = [up[c] for c in children[m]]
+        if parent[m] is not None:
+            up[m] = sch.add(m, parent[m], nbytes, deps, delay if deps else 0, f"{tag}.up")
+    root = next(m for m, p in parent.items() if p is None)
+    send_up(root)
+    def send_down(m, dep):
+        for c in children[m]:
+            send_down(c, [sch.add(m, c, nbytes, dep, 0, f"{tag}.down")])
+    send_down(root, [up[c] for c in children[root]])
+
+
+def msg_trees(sch, endpoints, nbytes, double=False, reduce_gbps=0):
+    if not double:
+        msg_tree(sch, binary_tree(endpoints), nbytes, reduce_gbps)
+        return
+    # Complementary trees: the second runs over the reversed order, so the
+    # first tree's leaves are (mostly) the second's inner nodes.
+    msg_tree(sch, binary_tree(endpoints), nbytes / 2, reduce_gbps, "tree0")
+    msg_tree(sch, binary_tree(endpoints[::-1]), nbytes / 2, reduce_gbps, "tree1")
+
+
 def endpoints_of(topo):
     """Routers with terminals in a topology file (all, unless `t R 0`)."""
     with open(topo) as f:
@@ -310,7 +356,7 @@ def main():
     r.add_argument("topo")
     r.add_argument("--k", type=int, default=3)
     m = {}
-    for name in ("msg-alltoall", "msg-torus", "msg-boardfly", "msg-rings"):
+    for name in ("msg-alltoall", "msg-torus", "msg-boardfly", "msg-rings", "msg-tree"):
         m[name] = sub.add_parser(name)
         m[name].add_argument("out")
         if name == "msg-rings":
@@ -320,8 +366,10 @@ def main():
         if name != "msg-alltoall":
             m[name].add_argument("--chunks", type=int, default=1)
             m[name].add_argument("--reduce-gbps", type=float, default=0)
-    m["msg-alltoall"].add_argument("--endpoints", type=int)
-    m["msg-alltoall"].add_argument("--topo")
+    for name in ("msg-alltoall", "msg-tree"):
+        m[name].add_argument("--endpoints", type=int)
+        m[name].add_argument("--topo")
+    m["msg-tree"].add_argument("--double", action="store_true")
     m["msg-torus"].add_argument("--dims", type=int, nargs=3, default=[8, 8, 16])
     m["msg-boardfly"].add_argument("--groups", type=int, default=32)
     a = ap.parse_args()
@@ -331,6 +379,10 @@ def main():
             sch = msg_alltoall(eps, a.bytes)
         elif a.cmd == "msg-torus":
             sch = chunked(msg_torus, a.chunks, a.bytes, a.dims, reduce_gbps=a.reduce_gbps)
+        elif a.cmd == "msg-tree":
+            eps = endpoints_of(a.topo) if a.topo else list(range(a.endpoints))
+            sch = chunked(msg_trees, a.chunks, a.bytes, eps, double=a.double,
+                          reduce_gbps=a.reduce_gbps)
         elif a.cmd == "msg-boardfly":
             sch = chunked(msg_boardfly, a.chunks, a.bytes, a.groups, reduce_gbps=a.reduce_gbps)
         else:

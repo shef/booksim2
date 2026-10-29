@@ -33,6 +33,10 @@ ignores `injection_rate`, so it always runs overloaded.
       `msg-torus`, `msg-boardfly`, `msg-rings`): stages of ring or direct
       groups, chunks, reduction delay; tests check byte totals and the ring
       all-reduce formula.
+- [x] Tree all-reduce (`msg-tree`, `--double` for NCCL-style double binary
+      trees), for switched fabrics and latency-bound sizes.
+- [ ] In-network reduction (switches that reduce, as in NVLink SHARP):
+      switch endpoints that receive, reduce and forward.
 - [ ] Rerun the NSDI Table 2 comparison as a fixed-bytes all-to-all and
       compare with the busiest-link bound.
 - [ ] Chakra execution-trace import (MLCommons; used by ASTRA-sim).

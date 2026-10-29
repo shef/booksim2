@@ -438,13 +438,16 @@ def fabric_messages_stall():
 
 
 def utils_collective_messages():
-    """Generated all-reduces send 2(N-1)/N x S per chip, the reduce-scatter
-    plus all-gather total, on the torus, Boardfly and Hamiltonian rings; an
-    all-to-all sends S / N per pair; dependencies name earlier messages."""
+    """Generated all-reduces move 2(N-1) x S in total (reduce-scatter plus
+    all-gather, or a tree's reduce plus broadcast) on the torus, Boardfly
+    and trees; an all-to-all sends S / N per pair; dependencies name earlier
+    messages."""
     S = 6_000_000
     cases = [("msg-torus", ["--dims", "4", "4", "4"], 64),
              ("msg-boardfly", ["--groups", "2"], 64),
-             ("msg-alltoall", ["--endpoints", "16"], 16)]
+             ("msg-alltoall", ["--endpoints", "16"], 16),
+             ("msg-tree", ["--endpoints", "13", "--chunks", "3"], 13),
+             ("msg-tree", ["--endpoints", "13", "--double"], 13)]
     for cmd, args, n in cases:
         out = os.path.join(TMP, f"{cmd}.txt")
         exporter("collectives.py", cmd, out, "--bytes", str(S), *args)

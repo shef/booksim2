@@ -193,6 +193,7 @@ it forwards. A new system only needs its group lists.
 | `msg-torus` | ring stages along X, Y, Z in three rotated orders and both directions, S/6 each |
 | `msg-boardfly` | direct stages within trays, groups, then across groups |
 | `msg-rings` | bidirectional ring over up to K edge-disjoint Hamiltonian cycles of a topology |
+| `msg-tree` | tree all-reduce: the whole buffer reduced up a binary tree and broadcast down, chunk by chunk; `--double` uses two complementary trees with half each (NCCL's double binary tree); about 2 log2 N steps instead of 2(N-1), for latency-bound sizes and switched fabrics |
 
 `--bytes S` is the buffer per chip, as in NCCL. `--chunks C` makes C
 independent pipelines; `--reduce-gbps R` delays each forward of reduced
@@ -218,6 +219,9 @@ step 3) so per-step spans show when a run reaches its steady state.
 - Different bandwidths on different links (BookSim moves one flit per
   cycle on every channel; mixed-rate systems would need per-link rates).
 - Priorities or traffic classes per message.
+- In-network reduction (switches that add data, such as NVLink SHARP or
+  InfiniBand SHARP): needs switches that receive, reduce and forward, which
+  the engine's endpoints (chips only) do not cover.
 - Chakra execution-trace import (a converter to this format).
 - Making `traffic = matrix` use the same router-based endpoints (it assumes
   equal terminal counts today).
