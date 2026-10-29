@@ -16,19 +16,31 @@ upstream example configs reproduce their recorded statistics exactly.
 
 - **`topology = fabric`**: a network read from files: routers that are chips
   (with any number of terminals) or switches (none), links with per-link
-  latency, and routing from offline tables or source routes. Routing
-  functions: `src`, `dor`, `esc`, `updown`, `duato`, `lduato` (Duato with a
-  layered escape network, deadlock-free under link failures) and `ugal`.
+  latency and optional rate (slower links such as PCIe or NIC links beside
+  the main fabric), per-chip injection caps, compute terminals (in-network
+  reduce and replicate engines), and routing from offline tables or source
+  routes, with multipath. Routing functions: `src`, `dor`, `esc`, `updown`,
+  `duato`, `lduato` (Duato with a layered escape network, deadlock-free under
+  link failures) and `ugal`.
+- **`sim_type = messages`**: collectives as fixed messages with dependencies
+  (whole-message or streamed), timed to completion, with stall (deadlock)
+  detection. Generators for all-to-all, MoE, torus, Boardfly, ring, tree and
+  in-network all-reduce, broadcast and pipelines ([doc/fabric/messages.md](doc/fabric/messages.md)).
 - **`traffic = matrix`**: an endpoint-to-endpoint traffic matrix from a file,
   so collective phases (all-reduce stages, all-to-all) run as steady traffic.
   Also `groupshift(G)`, an adversarial pattern for group networks.
 - **`measure_reorder = 1`**: per-pair packet reordering and the resequencing
   delay an in-order receiver would add.
+- **Results and runs**: `stats_json` (one JSON per run: status, build commit,
+  configuration, statistics), `link_util_file` (per-link load), and
+  `utils/fabric/harness.py` (seeds with confidence intervals, load sweeps
+  with saturation detection). Also: `batch_paced` (batch mode that honours
+  the injection rate) and a fixed exit status (0 on success).
 - **Tests**: `make -C src test` (upstream golden outputs plus fabric checks
   against analytical values), run by GitHub Actions on every push.
 
-Exporters for TPU torus and Boardfly slices and for collective traffic:
-[utils/fabric](utils/fabric). A [collectives viewer](doc/viewer) shows
+Exporters for TPU torus and Boardfly slices, a generic Clos, and collective
+traffic: [utils/fabric](utils/fabric). A [collectives viewer](doc/viewer) shows
 all-reduce and all-to-all moving through those fabrics in 3D, and how
 virtual channels prevent deadlock.
 
