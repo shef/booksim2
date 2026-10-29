@@ -437,12 +437,59 @@ def fabric_messages_stall():
     assert out.count("  message ") == 4, out[-1500:]
 
 
+def utils_collective_messages():
+    """Generated all-reduces send 2(N-1)/N x S per chip, the reduce-scatter
+    plus all-gather total, on the torus, Boardfly and Hamiltonian rings; an
+    all-to-all sends S / N per pair; dependencies name earlier messages."""
+    S = 6_000_000
+    cases = [("msg-torus", ["--dims", "4", "4", "4"], 64),
+             ("msg-boardfly", ["--groups", "2"], 64),
+             ("msg-alltoall", ["--endpoints", "16"], 16)]
+    for cmd, args, n in cases:
+        out = os.path.join(TMP, f"{cmd}.txt")
+        exporter("collectives.py", cmd, out, "--bytes", str(S), *args)
+        total, seen = 0, set()
+        for line in open(out):
+            if line.startswith("#"):
+                continue
+            f = line.split()
+            total += int(f[3])
+            for x in f[4:]:
+                if x.startswith("after="):
+                    assert all(int(d) in seen for d in x[6:].split(",")), line
+            seen.add(int(f[0]))
+        want = S * (n - 1) / n * (1 if cmd == "msg-alltoall" else 2) * n
+        assert abs(total - want) / want < 0.002, (cmd, total, want)
+
+
+def fabric_messages_ring_allreduce():
+    """Bidirectional ring all-reduce on an 8-chip ring takes 2(n-1) steps of
+    (S / 2n) bytes each plus one neighbour latency per step."""
+    n = 8
+    d = _write(os.path.join(TMP, "msg_ring8"),
+               topo=f"{n}\nt 0 2\n" + "".join(f"t {r} 2\n" for r in range(1, n))
+               + "".join(f"{r} 1 {(r + 1) % n} 2 0 10\n" for r in range(n)),
+               paths="".join(f"{s} {(s + k) % n} {min(k, n - k)} "
+                             + " ".join(["1 0" if k <= n // 2 else "2 0"] * min(k, n - k))
+                             + "\n" for s in range(n) for k in range(1, n)),
+               msgs="0 0 1 200\n")
+    lat, _, _ = _messages(d)
+    S = 3_200_000                                     # shard 200 KB = 1,000 flits
+    exporter("collectives.py", "msg-rings", f"{d}/msgs.txt", f"{d}/topo.txt",
+             "--bytes", str(S), "--k", "1")
+    t, _, out = _messages(d)
+    want = 2 * (n - 1) * (lat + 1000 - 1)
+    assert abs(t - want) / want < 0.03, (t, want, lat)
+    assert "Message tag ag0.6" in out
+
+
 TESTS = [make_upstream_test(c) for c in UPSTREAM] + [
     fabric_latency_per_hop, fabric_dor_torus_hops, fabric_src_torus_fixture,
     fabric_switched_terminals, fabric_groupshift, fabric_matrix_errors, fabric_port_gap_error,
     fabric_measure_reorder, utils_boardfly_collectives, utils_torus_fault_routes,
     utils_cdgcheck, utils_torus_twisted_hops, fabric_batch_paced,
     fabric_messages_basic, fabric_messages_endpoints, fabric_messages_stall,
+    utils_collective_messages, fabric_messages_ring_allreduce,
 ] + [make_smoke_test(r, x) for r, x in (("lduato", []), ("duato", []), ("updown", []),
                                         ("esc", []), ("ugal", ["ugal_threshold=128"]))]
 

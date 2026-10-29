@@ -33,3 +33,19 @@ def write_matrix(path, endpoints, flows):
         f.write(f"{endpoints}\n")
         for (s, d), w in sorted(flows.items()):
             f.write(f"{s} {d} {w:.9g}\n")
+
+
+def write_messages(path, msgs):
+    """msgs: (src, dst, bytes, deps, delay_ns, tag) with ids 0, 1, ... in list
+    order; deps name earlier ids (doc/fabric/messages.md)."""
+    with open(path, "w") as f:
+        f.write("# id src dst bytes [after=...] [delay=NS] [tag=...]\n")
+        for i, (s, d, b, deps, delay, tag) in enumerate(msgs):
+            line = f"{i} {s} {d} {b}"
+            if deps:
+                line += " after=" + ",".join(map(str, deps))
+            if delay:
+                line += f" delay={delay}"
+            if tag:
+                line += f" tag={tag}"
+            f.write(line + "\n")

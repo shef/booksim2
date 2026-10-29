@@ -1,7 +1,8 @@
 # Message workloads
 
-Status: engine implemented (`sim_type = messages`; tests
-`fabric_messages_*`); collective generators not yet. Tracked in
+Status: implemented: the engine (`sim_type = messages`) and generators in
+`utils/fabric/collectives.py` (`msg-*`); tests `fabric_messages_*` and
+`utils_collective_messages`. Tracked in
 [ROADMAP.md](../ROADMAP.md), section 1.
 
 Use `speculative = 1` for message runs. BookSim's input-queued router by
@@ -179,15 +180,24 @@ steps, with per-step tags to check the steady state, then extrapolated.
 
 ## Generators
 
-`utils/fabric/collectives.py` gains message output alongside its traffic
-matrices, for any topology file:
+`utils/fabric/collectives.py` writes message files. A collective is a list
+of stages; each stage splits the endpoints into groups that exchange either
+around a ring (n - 1 steps to a neighbour) or directly (one step to every
+peer). An all-reduce runs the stages as a reduce-scatter, each leaving 1/n
+of the data, then in reverse as an all-gather; each send waits for the data
+it forwards. A new system only needs its group lists.
 
-- all-to-all with equal bytes per pair;
-- ring all-reduce over given rings (the torus's three bidirectional rings,
-  Boardfly's Hamiltonian rings), reduce-scatter then all-gather, optionally
-  chunked;
-- hierarchical all-reduce over given groups (tray, group, global);
-- reduction compute as `delay`, from a per-system bytes-per-ns figure.
+| Command | Collective |
+|---|---|
+| `msg-alltoall` | every endpoint sends S/N to every other (`--endpoints N`, or `--topo` for a fabric with switches) |
+| `msg-torus` | ring stages along X, Y, Z in three rotated orders and both directions, S/6 each |
+| `msg-boardfly` | direct stages within trays, groups, then across groups |
+| `msg-rings` | bidirectional ring over up to K edge-disjoint Hamiltonian cycles of a topology |
+
+`--bytes S` is the buffer per chip, as in NCCL. `--chunks C` makes C
+independent pipelines; `--reduce-gbps R` delays each forward of reduced
+data by bytes / R. Steps are tagged (`rs0.3` is reduce-scatter stage 0,
+step 3) so per-step spans show when a run reaches its steady state.
 
 ## Tests
 

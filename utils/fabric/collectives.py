@@ -22,9 +22,34 @@ links; time = bytes per chip / (accepted links per chip x link rate).
                    extension with Posa rotations); each chip sends equally to
                    its two neighbours on every ring.
 
+Message files (`sim_type = messages`, doc/fabric/messages.md): the same
+collectives as fixed messages with dependencies, timed to completion.
+--bytes is the buffer per chip, as in NCCL: an all-reduce of S bytes, or an
+all-to-all where each chip sends S / N to every other chip.
+
+  msg-alltoall       every endpoint sends S / N to every other, all at once
+  msg-torus          torus all-reduce: in each of three dimension orders
+                     (X,Y,Z / Y,Z,X / Z,X,Y) and both ring directions, a ring
+                     reduce-scatter along each dimension's lines in turn, then
+                     the all-gather back; S split over the six. Rings follow
+                     coordinate lines; on a twisted torus the wrap message is
+                     routed like any other.
+  msg-boardfly       hierarchical all-reduce on a Boardfly slice: direct
+                     exchange within trays, then groups, then across groups
+  msg-rings          bidirectional ring all-reduce over up to K edge-disjoint
+                     Hamiltonian cycles of a topology file
+
+  --chunks C splits the work into C independent pipelines; --reduce-gbps R
+  adds the time to reduce received data (bytes / R) before forwarding it.
+
 usage: collectives.py torus-rings OUT [--dims X Y Z] [--twisted]
        collectives.py boardfly OUT [--groups G] [--stage tray|group|global|fused]
        collectives.py rings OUT TOPO_FILE [--k K]
+       collectives.py msg-alltoall OUT --bytes S (--endpoints N | --topo TOPO_FILE)
+       collectives.py msg-torus OUT --bytes S [--dims X Y Z] [COMMON]
+       collectives.py msg-boardfly OUT --bytes S [--groups G] [COMMON]
+       collectives.py msg-rings OUT TOPO_FILE --bytes S [--k K] [COMMON]
+         COMMON: [--chunks C] [--reduce-gbps R]
 """
 
 import argparse
@@ -111,7 +136,8 @@ def ham_cycle(n, adj, rng, tries=200, steps=200000):
     return None
 
 
-def rings(topo, k):
+def ham_cycles(topo, k):
+    """Up to k edge-disjoint Hamiltonian cycles of a topology file."""
     n, adj = load_graph(topo)
     rng = random.Random(1)
     found = []
@@ -123,12 +149,149 @@ def rings(topo, k):
         for a, b in zip(c, c[1:] + c[:1]):
             adj[a].discard(b)
             adj[b].discard(a)
+    return n, found
+
+
+def rings(topo, k):
+    n, found = ham_cycles(topo, k)
     flows = {}
     for c in found:
         for i, a in enumerate(c):
             for b in (c[i - 1], c[(i + 1) % n]):
                 flows[(a, b)] = flows.get((a, b), 0) + 1
     return n, flows, len(found)
+
+
+# ---- Message schedules ----------------------------------------------------
+#
+# A collective is a list of stages; each stage splits the endpoints into
+# groups that exchange data either around a ring (n - 1 steps to a
+# neighbour) or directly (one step to every peer). An all-reduce runs the
+# stages as a reduce-scatter, each leaving 1 / n of the data, then in
+# reverse as an all-gather. Each endpoint's sends wait for the data they
+# forward: a ring step for the previous step's incoming message, a stage's
+# first sends for what the endpoint received in the previous stage's last
+# step.
+
+
+class Schedule:
+    def __init__(self):
+        self.msgs = []
+
+    def add(self, src, dst, nbytes, deps=(), delay=0, tag=""):
+        self.msgs.append((src, dst, max(1, round(nbytes)), sorted(set(deps)), delay, tag))
+        return len(self.msgs) - 1
+
+
+def _stage(sch, groups, algo, shard, frontier, tag, reduce_ns_per_byte):
+    """One stage; shard = bytes per message. Returns the new frontier
+    {endpoint: message ids it received in the stage's last step}."""
+    new = {}
+    for g in groups:
+        n = len(g)
+        if n < 2:
+            continue
+        delay = round(shard * reduce_ns_per_byte)
+        if algo == "ring":
+            incoming = {m: frontier.get(m, []) for m in g}
+            for k in range(n - 1):
+                got = {}
+                for i, m in enumerate(g):
+                    dst = g[(i + 1) % n]
+                    deps = incoming[m]
+                    got[dst] = [sch.add(m, dst, shard, deps, delay if deps else 0,
+                                        f"{tag}.{k}")]
+                incoming = got
+            new.update(incoming)
+        else:
+            got = {m: [] for m in g}
+            for m in g:
+                deps = frontier.get(m, [])
+                for dst in g:
+                    if dst != m:
+                        got[dst].append(sch.add(m, dst, shard, deps, delay if deps else 0, tag))
+            new.update(got)
+    return new
+
+
+def allreduce(sch, stages, nbytes, reduce_gbps=0, prefix=""):
+    """stages: [(groups, "ring" | "direct")], groups of equal size per stage."""
+    rns = 1.0 / reduce_gbps if reduce_gbps else 0.0  # GB/s = bytes per ns
+    sizes, size = [], float(nbytes)
+    for groups, _ in stages:
+        sizes.append(size / len(groups[0]))      # shard per message
+        size /= len(groups[0])
+    frontier = {}
+    for s, (groups, algo) in enumerate(stages):
+        frontier = _stage(sch, groups, algo, sizes[s], frontier, f"{prefix}rs{s}", rns)
+    for s in reversed(range(len(stages))):
+        groups, algo = stages[s]
+        frontier = _stage(sch, groups, algo, sizes[s], frontier, f"{prefix}ag{s}", 0.0)
+
+
+def chunked(fn, chunks, nbytes, *args, **kw):
+    """Run fn(schedule, ..., nbytes / chunks) once per chunk (independent
+    pipelines sharing the network)."""
+    sch = Schedule()
+    for _ in range(chunks):
+        fn(sch, *args, nbytes / chunks, **kw)
+    return sch
+
+
+def msg_alltoall(endpoints, nbytes):
+    sch = Schedule()
+    n = len(endpoints)
+    for s in endpoints:
+        for d in endpoints:
+            if s != d:
+                sch.add(s, d, nbytes / n, tag="a2a")
+    return sch
+
+
+def torus_lines(D, d):
+    """Groups of chips along dimension d (coordinate lines, ring order)."""
+    groups = []
+    others = [k for k in range(3) if k != d]
+    for a in range(D[others[0]]):
+        for b in range(D[others[1]]):
+            line = []
+            for x in range(D[d]):
+                p = [0, 0, 0]
+                p[d], p[others[0]], p[others[1]] = x, a, b
+                line.append(torus.index(p, D))
+            groups.append(line)
+    return groups
+
+
+def msg_torus(sch, D, nbytes, reduce_gbps=0):
+    for order in ((0, 1, 2), (1, 2, 0), (2, 0, 1)):
+        for direction in (1, -1):
+            stages = [([g[::direction] for g in torus_lines(D, d)], "ring") for d in order]
+            allreduce(sch, stages, nbytes / 6, reduce_gbps)
+
+
+def msg_boardfly(sch, groups, nbytes, reduce_gbps=0):
+    tray = [[g * 32 + t * 4 + c for c in range(4)] for g in range(groups) for t in range(8)]
+    group = [[g * 32 + t * 4 + c for t in range(8)] for g in range(groups) for c in range(4)]
+    glob = [[g * 32 + i for g in range(groups)] for i in range(32)]
+    stages = [(tray, "direct"), (group, "direct")] + ([(glob, "direct")] if groups > 1 else [])
+    allreduce(sch, stages, nbytes, reduce_gbps)
+
+
+def msg_rings(sch, cycles, nbytes, reduce_gbps=0):
+    for c in cycles:
+        for direction in (1, -1):
+            allreduce(sch, [([c[::direction]], "ring")], nbytes / (2 * len(cycles)), reduce_gbps)
+
+
+def endpoints_of(topo):
+    """Routers with terminals in a topology file (all, unless `t R 0`)."""
+    with open(topo) as f:
+        lines = [l.split("#")[0].split() for l in f]
+    lines = [l for l in lines if l]
+    n = int(lines[0][0])
+    none = {int(l[1]) for l in lines[1:] if l[0] == "t" and int(l[2]) == 0}
+    return [r for r in range(n) if r not in none]
 
 
 def main():
@@ -146,7 +309,38 @@ def main():
     r.add_argument("out")
     r.add_argument("topo")
     r.add_argument("--k", type=int, default=3)
+    m = {}
+    for name in ("msg-alltoall", "msg-torus", "msg-boardfly", "msg-rings"):
+        m[name] = sub.add_parser(name)
+        m[name].add_argument("out")
+        if name == "msg-rings":
+            m[name].add_argument("topo")
+            m[name].add_argument("--k", type=int, default=3)
+        m[name].add_argument("--bytes", type=float, required=True)
+        if name != "msg-alltoall":
+            m[name].add_argument("--chunks", type=int, default=1)
+            m[name].add_argument("--reduce-gbps", type=float, default=0)
+    m["msg-alltoall"].add_argument("--endpoints", type=int)
+    m["msg-alltoall"].add_argument("--topo")
+    m["msg-torus"].add_argument("--dims", type=int, nargs=3, default=[8, 8, 16])
+    m["msg-boardfly"].add_argument("--groups", type=int, default=32)
     a = ap.parse_args()
+    if a.cmd.startswith("msg-"):
+        if a.cmd == "msg-alltoall":
+            eps = endpoints_of(a.topo) if a.topo else list(range(a.endpoints))
+            sch = msg_alltoall(eps, a.bytes)
+        elif a.cmd == "msg-torus":
+            sch = chunked(msg_torus, a.chunks, a.bytes, a.dims, reduce_gbps=a.reduce_gbps)
+        elif a.cmd == "msg-boardfly":
+            sch = chunked(msg_boardfly, a.chunks, a.bytes, a.groups, reduce_gbps=a.reduce_gbps)
+        else:
+            _, cycles = ham_cycles(a.topo, a.k)
+            print(f"{len(cycles)} edge-disjoint Hamiltonian rings")
+            sch = chunked(msg_rings, a.chunks, a.bytes, cycles, reduce_gbps=a.reduce_gbps)
+        fabricio.write_messages(a.out, sch.msgs)
+        print(f"{a.out}: {len(sch.msgs)} messages, "
+              f"{sum(m[2] for m in sch.msgs)} bytes")
+        return
     if a.cmd == "torus-rings":
         n, flows = torus_rings(a.dims, a.twisted)
     elif a.cmd == "boardfly":

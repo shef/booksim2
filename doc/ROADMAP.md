@@ -29,8 +29,10 @@ ignores `injection_rate`, so it always runs overloaded.
       upstream's exit status was inverted (fixed).
 - [ ] Decide `speculative = 1` for the calibrated system configs: rerun the
       key torus and Boardfly results with it and record the difference.
-- [ ] Generators in `utils/fabric/collectives.py`: equal-bytes all-to-all,
-      ring and hierarchical all-reduce (chunked), reduction delay; test 7.
+- [x] Generators in `utils/fabric/collectives.py` (`msg-alltoall`,
+      `msg-torus`, `msg-boardfly`, `msg-rings`): stages of ring or direct
+      groups, chunks, reduction delay; tests check byte totals and the ring
+      all-reduce formula.
 - [ ] Rerun the NSDI Table 2 comparison as a fixed-bytes all-to-all and
       compare with the busiest-link bound.
 - [ ] Chakra execution-trace import (MLCommons; used by ASTRA-sim).

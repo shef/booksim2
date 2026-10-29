@@ -38,6 +38,11 @@ pypy3 torus.py /tmp/tb --dims 4 4 8 --twisted --balance
 python3 collectives.py torus-rings /tmp/ar.txt --twisted
 #   ... traffic=matrix traffic_matrix_file=/tmp/ar.txt fabric_terminals=6
 
+# Equal-bytes all-to-all and a torus all-reduce as message files (sim_type = messages)
+python3 collectives.py msg-alltoall /tmp/a2a.txt --bytes 1e6 --endpoints 64
+python3 collectives.py msg-torus /tmp/ar.txt --bytes 6e6 --dims 4 4 4 --chunks 4
+#   ... sim_type=messages message_file=/tmp/a2a.txt speculative=1
+
 # Viewer scenes and the animated SVGs on the system pages (doc/viewer/README.md)
 python3 scenes.py ../../doc/viewer/data
 python3 animate.py torus ../../doc/media/torus-allreduce.svg
