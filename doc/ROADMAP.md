@@ -94,6 +94,34 @@ long collectives are simulated for a few steady steps and extrapolated.
 - [ ] Learned surrogate (in the style of m3/m4) if the flow-level model is
       not accurate enough.
 
+## 6. Coverage for more systems
+
+Gaps that matter once systems differ, most important first.
+
+- [ ] Mixed link and endpoint rates: per-link bandwidth (scale-up and
+      scale-out links, generations at different rates, half-width links
+      after lane failures) and per-endpoint injection and ejection caps
+      (DMA engines, HBM bandwidth). BookSim moves one flit per cycle on
+      every channel today.
+- [ ] Realistic workloads: MoE all-to-all with uneven sizes (ragged, skewed
+      experts), pipeline-parallel point-to-point, inference traffic for
+      TPU 8i (small latency-bound messages, decode steps, KV-cache moves),
+      and a simple compute model so communication can overlap compute
+      (with Chakra import, section 1).
+- [ ] Scale-out across slices: hierarchical collectives over the datacenter
+      network between slices, likely in the flow-level model (section 5)
+      rather than BookSim.
+- [ ] Lossy, Ethernet-style fabrics (congestion control, packet spraying,
+      retransmission) for Ethernet-based scale-up designs. Open decision:
+      model them here, or simulate them in a packet simulator built for
+      Ethernet (such as htsim) and compare at the collective level.
+- [ ] Energy and cost per result: energy per bit by link type (copper,
+      optics), BookSim's power model, and OCS and transceiver counts, so
+      topologies compare per watt and per dollar.
+- [ ] Collective algorithm search: topology-specific schedules (as TACOS
+      and PCCL synthesize) in the message format, so a comparison does not
+      rest on a hand-written algorithm that suits one topology.
+
 ## Viewer
 
 From [viewer/README.md](viewer/README.md).
