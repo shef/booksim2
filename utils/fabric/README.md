@@ -31,6 +31,9 @@ pypy3 torus.py /tmp/t --twisted --ocs-fault z --scenario adjacent --vcs 3
 #   ... routing_function=src fabric_path_file=/tmp/t/paths.txt num_vcs=3
 python3 cdgcheck.py /tmp/t/topo.txt /tmp/t/paths.txt
 
+# Fault-free twisted 4x4x8 with all-to-all-balanced tiebreaks (NSDI's ILP role)
+pypy3 torus.py /tmp/tb --dims 4 4 8 --twisted --balance
+
 # All-reduce on the torus, six terminals per chip
 python3 collectives.py torus-rings /tmp/ar.txt --twisted
 #   ... traffic=matrix traffic_matrix_file=/tmp/ar.txt fabric_terminals=6

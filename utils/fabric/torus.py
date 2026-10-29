@@ -11,7 +11,9 @@ Routes:
   fault-free  dimension-order, longest dimension first (see dim_order for
               the order under a fault), shortest direction,
               ties broken by the source coordinate's parity (even -> positive),
-              as in NSDI 2024. On a twisted torus the X and Y directions are
+              as in NSDI 2024; `--balance` instead picks among shortest paths
+              to minimize the busiest link under all-to-all (NSDI's ILP
+              tiebreaking, used on twisted tori). On a twisted torus the X and Y directions are
               chosen to minimize total hops given the shift their wraps cause.
   OCS fault   `--ocs-fault DIM`: one OCS failure in that dimension removes the
               links at the scenario's face positions on every cube face
@@ -35,7 +37,8 @@ only on a single 4x4x4 cube among the cases we checked, while 3 VCs always
 do. The exporter checks the graph (as cdgcheck.py does) and reports it.
 
 usage: torus.py OUTDIR [--dims X Y Z] [--twisted] [--ocs-fault x|y|z]
-                [--scenario one|adjacent|spread] [--vcs 2|3] [--ocs-distance M]
+                [--scenario one|adjacent|spread] [--vcs 2|3] [--balance]
+                [--ocs-distance M]
 """
 
 import argparse
@@ -284,8 +287,10 @@ def translate(p, shift, D, twist):
     return p
 
 
-def optimize(D, twist, bad, iters=40):
-    """Canonical routes {(source in the first cube, dest): hops}."""
+def optimize(D, twist, bad, iters=40, minimal=False):
+    """Canonical routes {(source in the first cube, dest): hops}; `minimal`
+    instead chooses among the shortest dimension-order paths (tiebreaking
+    alone), which keeps the dateline VCs deadlock-free."""
     N = D[0] * D[1] * D[2]
     sym, shifts = translations(D)
     canon = [coord(i, D) for i in range(N) if all(coord(i, D)[k] < sym[k] for k in range(3))]
@@ -306,7 +311,12 @@ def optimize(D, twist, bad, iters=40):
             d = coord(di, D)
             if d == s:
                 continue
-            cands = candidates(s, d, D, twist, bad)
+            if minimal:
+                v = {tuple(h) for h in dor_variants(s, d, D, twist)}
+                m = min(map(len, v))
+                cands = [(list(h), 0) for h in sorted(v) if len(h) == m]
+            else:
+                cands = candidates(s, d, D, twist, bad)
             keys.append((s, d, cands))
             pairs.append([links(s, h) for h, _ in cands])
     choice = [0] * len(pairs)
@@ -345,6 +355,9 @@ def main():
     ap.add_argument("--scenario", choices=list(SCENARIOS), default="adjacent")
     ap.add_argument("--vcs", type=int, choices=[2, 3], default=2,
                     help="VCs for fault routes: 2 (wild hops share them) or 3 (wild hops get VC 2)")
+    ap.add_argument("--balance", action="store_true",
+                    help="fault-free: choose among shortest paths to minimize the busiest link under "
+                         "all-to-all, as NSDI 2024's ILP tiebreaking does (default: parity tiebreak)")
     ap.add_argument("--ocs-distance", type=float, default=OCS_DISTANCE_M,
                     help="TPU-to-OCS fiber length in metres (default %(default)s)")
     a = ap.parse_args()
@@ -369,8 +382,8 @@ def main():
             links.append((i, 1 + 2 * dim, index(q, D), 2 + 2 * dim, kind))
             nbr |= {(i, dim, 0), (index(q, D), dim, 1)}
 
-    if bad:
-        canon, busiest = optimize(D, twist, bad)
+    if bad or a.balance:
+        canon, busiest = optimize(D, twist, bad, minimal=not bad)
     else:
         canon, busiest = None, None
     sym, _ = translations(D)

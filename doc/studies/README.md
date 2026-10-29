@@ -15,3 +15,4 @@ Name files `YYYY-MM-<topic>.md`.
 |---|---|---|
 | Collectives at 1,024 chips | How do all-reduce and all-to-all compare on an Ironwood torus and an 8i Boardfly, fault-free and with one OCS failure? | pending |
 | Boardfly under failures | How much throughput does each failure cost, by slice size? | pending |
+| [NSDI 2024 Table 2](2026-10-nsdi-table2.md) | Do our torus model and fault routes reproduce NSDI's all-to-all throughput under one OCS failure? | done (2026-10) |

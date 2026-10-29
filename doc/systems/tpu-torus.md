@@ -69,7 +69,10 @@ what a duplex link end uses.
   short dimension shifts the long dimension by 8).
 - Fault-free routing: dimension-order, longest dimension first, with a
   dateline VC per ring (`dor`, or `src` with the same routes on a twisted
-  torus). 2 VCs.
+  torus). 2 VCs. `--balance` instead chooses among the shortest
+  dimension-order paths to minimize the busiest link under all-to-all, as
+  NSDI's ILP tiebreaking does; on twisted slices this raises fault-free
+  all-to-all throughput by 7-39% and is the fair baseline for fault routes.
 - Buffers: dimension-order routing carries a neighbour hop on a single VC, so
   with buffers split per VC each VC must cover the fiber round trip alone
   (about 2,200 flits per VC at 100 m). With a shared buffer per port
@@ -191,8 +194,10 @@ one failure unit holds two positions, 1 of 16 if it holds one.
   collapse (accepted load falls to about half), most readily in the Ironwood
   model on its 2 ns cycle. Measure saturation throughput with an offered
   load just above it, not far past it.
-- To do: reproduce NSDI 2024's measured throughput under one OCS failure on a
-  4x4x4 slice with our fault routes.
+- NSDI 2024 Table 2 (measured all-to-all, one OCS down): our routes keep
+  94.1% on 4x4x4 (measured 92.2%), 100% on 4x4x8 twisted (101.7%) and about
+  102% on 4x8x8 twisted (98.8%), and the fault-free shape ratios match within
+  about 0.05. See [the study](../studies/2026-10-nsdi-table2.md).
 
 ## Open questions
 
