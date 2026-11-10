@@ -76,7 +76,7 @@ messages.
   class does not hold up the others. Measured, it is worse than one shared
   window on every slice tried. Routed latencies on the NSDI slices fall into
   copper-only, one-fiber and two-fiber classes; with four splits (limits
-  adding up to 512 to 1,024), the 48 KB-per-pair all-to-all took 40,792 to
+  adding up to 512 to 1,024), the 160 KB-per-pair all-to-all took 40,792 to
   51,821 cycles on 4x4x4 (29,113 with one window of 512), 195,977 to
   234,150 on 4x4x8 twisted with balanced routes (62,607), 325,000 to
   387,000 with parity routes (85,523) and about 1,000,000 on 4x8x8 twisted
