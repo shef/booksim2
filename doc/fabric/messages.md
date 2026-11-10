@@ -74,13 +74,16 @@ messages.
   thresholds; the latency of the source route, or the lowest over any path
   without one), as a transport with static per-class limits would; a full
   class does not hold up the others. Measured, it is worse than one shared
-  window: on the 4x4x8 twisted torus with fault-free parity routes (the
-  case where one window of 1,024 collapses), routed latencies fall into
-  copper-only, one-fiber and two-fiber classes, and every split tried,
-  including ones whose limits add up to 512, collapsed to 325,000-387,000
-  cycles against 85,523 for one window of 512. One shared window couples
-  the classes: when far paths congest, near traffic slows too. Separate
-  windows let near traffic keep loading the links far traffic needs.
+  window on every slice tried. Routed latencies on the NSDI slices fall into
+  copper-only, one-fiber and two-fiber classes; with four splits (limits
+  adding up to 512 to 1,024), the 48 KB-per-pair all-to-all took 40,792 to
+  51,821 cycles on 4x4x4 (29,113 with one window of 512), 195,977 to
+  234,150 on 4x4x8 twisted with balanced routes (62,607), 325,000 to
+  387,000 with parity routes (85,523) and about 1,000,000 on 4x8x8 twisted
+  (165,999). Two effects: one shared window couples the classes, so near
+  traffic slows when far paths congest instead of loading the links far
+  traffic needs; and near messages finish first, after which the far class
+  is held to its share of the window while the rest goes unused.
 - **Pipelining** is the generator's choice: a step that forwards data as it
   arrives is several smaller messages (chunks), each depending on the
   matching incoming chunk.
