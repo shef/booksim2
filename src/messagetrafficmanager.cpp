@@ -26,7 +26,17 @@ MessageTrafficManager::MessageTrafficManager(const Configuration &config,
   _packet_size = config.GetInt("packet_size");
   _cycle_ns = config.GetFloat("cycle_ns");
   _stall_cycles = config.GetInt("message_stall_cycles");
-  _window = config.GetInt("message_window");
+  _windows = config.GetIntArray("message_window_classes");
+  vector<int> lat = config.GetIntArray("message_window_latency");
+  _window_lat.assign(lat.begin(), lat.end());
+  if (_windows.empty()) {
+    if (!_window_lat.empty()) Fail("message_window_latency needs message_window_classes");
+    _windows.push_back(config.GetInt("message_window"));
+  } else if (_windows.size() != _window_lat.size() + 1) {
+    Fail("message_window_classes needs one more value than message_window_latency");
+  }
+  for (size_t c = 1; c < _window_lat.size(); ++c)
+    if (_window_lat[c] <= _window_lat[c - 1]) Fail("message_window_latency must increase");
   _out_file = config.GetStr("message_out_file");
   if (_flit_bytes <= 0 || _packet_size <= 0 || _cycle_ns <= 0)
     Fail("flit_bytes, packet_size and cycle_ns must be positive");
@@ -38,7 +48,7 @@ MessageTrafficManager::MessageTrafficManager(const Configuration &config,
 
   _ready.assign(_ep_first.size(), vector<int>());
   _rr.assign(_ep_first.size(), 0);
-  _in_flight.assign(_ep_first.size(), 0);
+  _in_flight.assign(_ep_first.size(), vector<int>(_windows.size(), 0));
   _next_msg.assign(_nodes, -1);
   _next_dest.assign(_nodes, -1);
   _next_size.assign(_nodes, 0);
@@ -111,6 +121,12 @@ void MessageTrafficManager::_ReadMessages(const string &file) {
       Fail(where.str() + "endpoint has no terminals (a switch, or no compute terminals)");
     if (m.src == m.dst) Fail(where.str() + "source and destination are the same");
     if (m.bytes <= 0) Fail(where.str() + "bytes must be positive");
+    m.wclass = 0;
+    if (!_window_lat.empty()) {
+      long long l = FabricLatency(m.src % _routers_n, m.dst % _routers_n);
+      if (l < 0) Fail(where.str() + "message_window_latency needs a connected fabric network");
+      while (m.wclass < (int)_window_lat.size() && l > _window_lat[m.wclass]) ++m.wclass;
+    }
     vector<int> deps, streams;
     double delay_ns = 0;
     string tag = "-", field;
@@ -210,12 +226,19 @@ int MessageTrafficManager::_IssuePacket(int source, int cl) {
   int ep = _node_ep[source];
   vector<int> &ready = _ready[ep];
   if (ready.empty()) return 0;
-  if (_window > 0 && _in_flight[ep] >= _window) return 0;
-  ++_in_flight[ep];
   size_t &rr = _rr[ep];
   if (rr >= ready.size()) rr = 0;
+  // Next ready message in round-robin order whose window class has room;
+  // a full class (say, distant chips) doesn't hold up the others.
+  size_t k = 0;
+  for (; k < ready.size(); ++k, rr = (rr + 1) % ready.size()) {
+    int c = _msgs[ready[rr]].wclass;
+    if (_windows[c] <= 0 || _in_flight[ep][c] < _windows[c]) break;
+  }
+  if (k == ready.size()) return 0;
   int i = ready[rr];
   Message &m = _msgs[i];
+  ++_in_flight[ep][m.wclass];
   _next_msg[source] = i;
   // Rotate destination terminals per packet so each message spreads over
   // all of them (several single-terminal chips can feed one multi-terminal
@@ -250,7 +273,7 @@ void MessageTrafficManager::_RetireFlit(Flit *f, int dest) {
   _last_retire = _time;
   if (!f->tail) return;
   Message &m = _msgs[_pid_msg[f->pid]];
-  --_in_flight[m.src];
+  --_in_flight[m.src][m.wclass];
   for (size_t k = 0; k < m.stream_dependents.size(); ++k) {
     int d = m.stream_dependents[k].first;
     _grants.push(make_pair(_time + _msgs[d].delay, make_pair(d, m.stream_dependents[k].second)));

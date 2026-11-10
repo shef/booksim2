@@ -83,6 +83,11 @@ public:
 void FabricTerminals(std::vector<int> *first, std::vector<int> *count,
                      std::vector<int> *compute);
 
+// Total link latency, in cycles, from router u to router v in the fabric
+// network built last: the longest of its source routes if it has any (src
+// routing), else the lowest over any path; -1 if none, or no fabric.
+long long FabricLatency(int u, int v);
+
 void esc_fabric(const Router *r, const Flit *f, int in_channel, OutputSet *outputs, bool inject);
 void updown_fabric(const Router *r, const Flit *f, int in_channel, OutputSet *outputs,
                    bool inject);

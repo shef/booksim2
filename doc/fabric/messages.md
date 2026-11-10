@@ -69,6 +69,18 @@ messages.
   2 MB all-to-all by 13-24%, while 1,024 and 2,048 matched the unlimited
   run (which, at about 1,300 packets per chip, was too short to collapse).
   Check a value by doubling it. 0 (the default) means no limit.
+  `message_window_classes` instead gives each source one window per
+  distance class, classed by path latency (`message_window_latency`
+  thresholds; the latency of the source route, or the lowest over any path
+  without one), as a transport with static per-class limits would; a full
+  class does not hold up the others. Measured, it is worse than one shared
+  window: on the 4x4x8 twisted torus with fault-free parity routes (the
+  case where one window of 1,024 collapses), routed latencies fall into
+  copper-only, one-fiber and two-fiber classes, and every split tried,
+  including ones whose limits add up to 512, collapsed to 325,000-387,000
+  cycles against 85,523 for one window of 512. One shared window couples
+  the classes: when far paths congest, near traffic slows too. Separate
+  windows let near traffic keep loading the links far traffic needs.
 - **Pipelining** is the generator's choice: a step that forwards data as it
   arrives is several smaller messages (chunks), each depending on the
   matching incoming chunk.
@@ -164,6 +176,8 @@ can be added later without touching the rest.
 | `cycle_ns` | 1.0 | nanoseconds per cycle, from the system calibration |
 | `message_stall_cycles` | 1000000 | cycles without an ejected flit before a run with unfinished messages stops |
 | `message_window` | 0 | packets in flight per source endpoint (0: no limit); set for bandwidth-bound runs, see Window above |
+| `message_window_classes` | - | `{W0,W1,...}`: a window per distance class, replacing `message_window`; 0 is no limit for that class |
+| `message_window_latency` | - | `{L1,L2,...}`: class thresholds in cycles, one fewer than the classes; a message's class is how many thresholds its path latency exceeds |
 | `message_out_file` | | optional per-message results: id, tag, ready, first injection, finish (cycles) |
 
 ## Output

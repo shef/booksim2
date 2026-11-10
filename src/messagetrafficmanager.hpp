@@ -18,6 +18,7 @@ class MessageTrafficManager : public TrafficManager {
 
   struct Message {
     int id, src, dst, tag;   // src, dst: endpoint indices
+    int wclass;              // window class (message_window_classes)
     long long bytes;
     int packets, last_size;  // packets of packet_size flits; last one's size
     int issued, retired;     // packets so far
@@ -58,8 +59,12 @@ class MessageTrafficManager : public TrafficManager {
   int _flit_bytes, _packet_size;
   double _cycle_ns;
   long long _stall_cycles;
-  int _window;                   // message_window: packets in flight per endpoint (0 = no limit)
-  std::vector<int> _in_flight;   // [endpoint] packets issued, tail not yet ejected
+  // Window classes: packets in flight per (endpoint, class); a message's
+  // class is the number of message_window_latency thresholds its path
+  // latency exceeds. message_window alone is one class.
+  std::vector<int> _windows;                    // [class] limit, 0 = none
+  std::vector<long long> _window_lat;           // [class - 1] threshold, cycles
+  std::vector<std::vector<int> > _in_flight;    // [endpoint][class] issued, tail not yet ejected
   std::string _out_file;
   int _finished;
   long long _last_retire;

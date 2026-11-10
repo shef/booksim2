@@ -62,6 +62,10 @@ ignores `injection_rate`, so it always runs overloaded.
       large all-to-all is open-loop traffic far past saturation and
       collapses (4x4x8 twisted, 48 KB per pair: 41,666 cycles, links 40%
       busy; window 512: 20,972). Set it for bandwidth-bound runs.
+- [x] Per-class windows (`message_window_classes`, `message_window_latency`)
+  and a start-up warning for buffers below a link's credit round trip.
+  Classes by path latency did not beat one shared window: every split tried
+  collapsed on the 4x4x8 twisted case (messages.md, Window).
 - [x] Multicast by relay replication (`msg-bcast --mode relay`, test
       `fabric_multicast_relay`): copies made at compute terminals, forwarded
       packet by packet with `stream=`. On an 8-chip Clos it is about six

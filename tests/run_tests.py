@@ -413,6 +413,29 @@ def fabric_messages_basic():
     assert abs(w1 - 10 * (lat + 7)) <= 20, (lat, w1)
     assert _messages(d, ["message_window=1000"])[0] == free
 
+    # Window classes by path latency (threshold 15: chip 1 is near at 10
+    # cycles, chip 2 far at 20). Each class is limited on its own, and a
+    # full far class doesn't hold up near traffic.
+    near_lat, _, _ = _messages(_write(d, msgs="0 0 1 200\n"))
+    cls = ["message_window_latency={15}"]
+    _write(d, msgs="0 0 1 16000\n")
+    assert _messages(d, cls + ["message_window_classes={0,1}"])[0] == _messages(d)[0]
+    n1, _, _ = _messages(d, cls + ["message_window_classes={1,0}"])
+    assert abs(n1 - 10 * (near_lat + 7)) <= 20, (near_lat, n1)
+    _write(d, msgs="0 0 2 16000\n")
+    assert _messages(d, cls + ["message_window_classes={1,0}"])[0] == free
+    f1, _, _ = _messages(d, cls + ["message_window_classes={0,1}"])
+    assert abs(f1 - w1) <= 2, (w1, f1)
+    _write(d, msgs="0 0 1 160000\n1 0 2 16000\n")
+    both, per, _ = _messages(d, cls + ["message_window_classes={0,1}"])
+    assert per[0][2] < one + 120, (one, per)    # near runs at full rate
+    assert per[1][2] >= f1, per
+    code, out = _messages(d, cls + ["message_window_classes={1}"], check=False)
+    assert code != 0 and "one more value" in out, out[-500:]
+    # Buffers below a link's credit round trip (2 x 10 cycles) are flagged.
+    assert "credit round trip of 2 links (up to 20 flits)" in _messages(d, ["vc_buf_size=16"])[2]
+    assert "credit round trip" not in _messages(d, ["vc_buf_size=20"])[2]
+
 def fabric_messages_endpoints():
     """Endpoints are routers with terminals: a switch in the middle is not an
     endpoint, a chip with 3 terminals sends to one with 1, and messages to a

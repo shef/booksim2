@@ -29,6 +29,8 @@
 #include "stats_json.hpp"
 
 #include <algorithm>
+#include <cmath>
+#include <queue>
 #include <cassert>
 #include <cstdlib>
 #include <fstream>
@@ -66,6 +68,7 @@ bool gEjectAny = false;           // fabric_eject_any: eject through any termina
 std::vector<std::vector<int> > gPortPeer;     // [router][link port] neighbour router
 std::vector<std::vector<double> > gPortRate;  // [router][link port] rate
 std::vector<std::vector<int> > gPortKind;  // [router][link port] kind
+std::vector<std::vector<int> > gPortLat;   // [router][link port] latency, cycles
 std::vector<unsigned long long> gArrDown;  // [router] bit p: arriving on p was a down hop
 std::vector<Entry> gTable;                 // [router * R + dest router]
 std::vector<std::vector<std::vector<Hop> > > gPaths;  // [src router * R + dest router][alternative]
@@ -75,6 +78,9 @@ int gEscLayers = 0;
 std::vector<int> gGroup;
 int gNumGroups = 0;
 std::vector<std::vector<unsigned char> > gDist;
+// Link latencies for FabricLatency: [router] (neighbour, cycles).
+std::vector<std::vector<std::pair<int, int> > > gAdjLat;
+std::vector<std::vector<long long> > gLatCache;  // [source router] -> per destination
 
 long gHeads = 0, gEscaped = 0;
 int gEscapeVcBase = 1 << 30;  // first escape VC, set by the routing function
@@ -496,6 +502,43 @@ void FabricTerminals(std::vector<int> *first, std::vector<int> *count,
   for (size_t r = 0; r < count->size(); ++r) (*count)[r] -= (*compute)[r];
 }
 
+long long FabricLatency(int u, int v) {
+  if (gAdjLat.empty()) return -1;
+  if (!gPaths.empty() && !gPaths[(size_t)u * gRouters + v].empty()) {
+    // Source routes: the longest alternative, which is what the window
+    // must cover.
+    const std::vector<std::vector<Hop> > &alts = gPaths[(size_t)u * gRouters + v];
+    long long worst = 0;
+    for (size_t a = 0; a < alts.size(); ++a) {
+      long long t = 0;
+      int r = u;
+      for (size_t h = 0; h < alts[a].size(); ++h) {
+        t += gPortLat[r][alts[a][h].port];
+        r = gPortPeer[r][alts[a][h].port];
+      }
+      worst = std::max(worst, t);
+    }
+    return worst;
+  }
+  std::vector<long long> &d = gLatCache[u];
+  if (d.empty()) {  // Dijkstra from u, computed once per source
+    d.assign(gAdjLat.size(), -1);
+    std::priority_queue<std::pair<long long, int>, std::vector<std::pair<long long, int> >,
+                        std::greater<std::pair<long long, int> > > q;
+    q.push(std::make_pair(0LL, u));
+    while (!q.empty()) {
+      long long t = q.top().first;
+      int x = q.top().second;
+      q.pop();
+      if (d[x] >= 0) continue;
+      d[x] = t;
+      for (size_t i = 0; i < gAdjLat[x].size(); ++i)
+        if (d[gAdjLat[x][i].first] < 0) q.push(std::make_pair(t + gAdjLat[x][i].second, gAdjLat[x][i].first));
+    }
+  }
+  return d[v];
+}
+
 void Fabric::_BuildNet(const Configuration &config) {
   struct End { int chan_out, chan_in, kind; double rate; int peer; };
   int routers;
@@ -519,6 +562,7 @@ void Fabric::_BuildNet(const Configuration &config) {
   }
 
   gPortKind.assign(_size, std::vector<int>());
+  gPortLat.assign(_size, std::vector<int>(1, 0));
   gPortPeer.assign(_size, std::vector<int>(1, -1));
   gPortRate.assign(_size, std::vector<double>(1, 1.0));
   for (int r = 0; r < _size; ++r) {
@@ -546,6 +590,7 @@ void Fabric::_BuildNet(const Configuration &config) {
       _routers[r]->AddInputChannel(_chan[ports[r][p].chan_in], _chan_cred[ports[r][p].chan_in]);
       if (ports[r][p].rate < 1.0) _routers[r]->SetOutputRate(gTerms[r] + p - 1, ports[r][p].rate);
       gPortKind[r].push_back(ports[r][p].kind);
+      gPortLat[r].push_back(_chan[ports[r][p].chan_out]->GetLatency());
       gPortRate[r].push_back(ports[r][p].rate);
       gPortPeer[r].push_back(ports[r][p].peer);
     }
@@ -557,6 +602,27 @@ void Fabric::_BuildNet(const Configuration &config) {
     adj[links[i].u].push_back(std::make_pair(links[i].v, links[i].kind));
     adj[links[i].v].push_back(std::make_pair(links[i].u, links[i].kind));
   }
+  gAdjLat.assign(_size, std::vector<std::pair<int, int> >());
+  gLatCache.assign(_size, std::vector<long long>());
+  // A VC streams at a link's full rate only if its buffer covers the credit
+  // round trip (data out, credit back): about 2 x latency x rate flits. With
+  // a shared buffer, one VC may fill all of it.
+  int buf = config.GetInt("vc_buf_size"), short_links = 0, worst = 0;
+  if (config.GetStr("buffer_policy") != "private" && config.GetInt("buf_size") > 0)
+    buf = config.GetInt("buf_size");
+  for (size_t i = 0; i < links.size(); ++i) {
+    gAdjLat[links[i].u].push_back(std::make_pair(links[i].v, links[i].lat));
+    gAdjLat[links[i].v].push_back(std::make_pair(links[i].u, links[i].lat));
+    int need = (int)std::ceil(2 * links[i].lat * links[i].rate);
+    if (need > buf) {
+      ++short_links;
+      worst = std::max(worst, need);
+    }
+  }
+  if (short_links)
+    std::cerr << "fabric: warning: buffer of " << buf
+              << " flits per VC is below the credit round trip of " << short_links << " links (up to " << worst
+              << " flits); one VC cannot keep them busy" << std::endl;
   gGroup.assign(_size, -1);
   gNumGroups = 0;
   for (int r = 0; r < _size; ++r) {
